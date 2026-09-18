@@ -1,0 +1,31 @@
+using System.Text.Json;
+using EventFlow.Application;
+using EventFlow.Domain;
+using EventFlow.Infrastructure;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace EventFlow.Api.Controllers;
+[Authorize,ApiController,Route("api/modules")]
+public sealed class ModulesController(EventFlowDbContext db) : ControllerBase
+{
+    [HttpGet] public async Task<IReadOnlyList<ModuleDto>> Catalog(CancellationToken ct)=>await db.Modules.OrderBy(x=>x.Category).ThenBy(x=>x.Name).Select(x=>new ModuleDto(x.Code,x.Name,x.Description,x.Category,x.Icon,x.IsAvailable,x.ConfigurationSchemaJson)).ToListAsync(ct);
+    [HttpGet("templates")] public async Task<IReadOnlyList<TemplateDto>> Templates(CancellationToken ct)=>await db.ModuleTemplates.OrderBy(x=>x.Name).Select(x=>new TemplateDto(x.Code,x.Name,x.Items.OrderBy(i=>i.DisplayOrder).Select(i=>i.Module.Code).ToList())).ToListAsync(ct);
+}
+[Authorize,ApiController,Route("api/events/{eventId:guid}/modules")]
+public sealed class EventModulesController(EventFlowDbContext db,ICurrentUser current) : ControllerBase
+{
+    [HttpGet] public async Task<IReadOnlyList<EventModuleDto>> List(Guid eventId,CancellationToken ct){await Accessible(eventId,ct);return await Query(eventId).OrderBy(x=>x.DisplayOrder).Select(x=>Map(x)).ToListAsync(ct);}
+    [HttpPost("apply-template")] public async Task<IReadOnlyList<EventModuleDto>> Apply(Guid eventId,ApplyTemplateRequest r,CancellationToken ct){await Owned(eventId,ct);var template=await db.ModuleTemplates.Include(x=>x.Items).SingleOrDefaultAsync(x=>x.Code==r.TemplateCode.ToUpper(),ct)??throw new AppException(404,"template_not_found","Plantilla no encontrada.");db.EventModules.RemoveRange(db.EventModules.Where(x=>x.EventId==eventId));db.EventModules.AddRange(template.Items.Select(x=>new EventModule{EventId=eventId,ModuleId=x.ModuleId,DisplayOrder=x.DisplayOrder,ConfigurationJson=x.ConfigurationJson}));await db.SaveChangesAsync(ct);return await List(eventId,ct);}
+    [HttpPost("{code}")] public async Task<EventModuleDto> Add(Guid eventId,string code,CancellationToken ct){await Owned(eventId,ct);var module=await db.Modules.SingleOrDefaultAsync(x=>x.Code==code.ToUpper()&&x.IsAvailable,ct)??throw new AppException(404,"module_not_found","Módulo no disponible.");var em=await db.EventModules.Include(x=>x.Module).SingleOrDefaultAsync(x=>x.EventId==eventId&&x.ModuleId==module.Id,ct);if(em is null){var order=(await db.EventModules.Where(x=>x.EventId==eventId).MaxAsync(x=>(int?)x.DisplayOrder,ct)??-1)+1;em=new EventModule{EventId=eventId,Module=module,DisplayOrder=order};db.EventModules.Add(em);}else em.IsEnabled=true;await db.SaveChangesAsync(ct);return Map(em);}
+    [HttpPut("{code}")] public async Task<EventModuleDto> Configure(Guid eventId,string code,ConfigureModuleRequest r,CancellationToken ct){await Owned(eventId,ct);var em=await Query(eventId).SingleOrDefaultAsync(x=>x.Module.Code==code.ToUpper(),ct)??throw new AppException(404,"module_not_found","Módulo no configurado en el evento.");try{JsonDocument.Parse(r.Configuration);}catch{throw new AppException(400,"invalid_configuration","La configuración debe ser JSON válido.");}if(!Enum.TryParse<ModuleAudience>(r.Audience,true,out var audience))throw new AppException(400,"invalid_audience","Audiencia inválida.");em.IsEnabled=r.Enabled;em.IsFeatured=r.Featured&&r.Enabled;em.Audience=audience;em.ConfigurationJson=r.Configuration;await db.SaveChangesAsync(ct);return Map(em);}
+    [HttpPut("order")] public async Task<IActionResult> Reorder(Guid eventId,ReorderModulesRequest r,CancellationToken ct){await Owned(eventId,ct);var items=await Query(eventId).ToListAsync(ct);if(r.Codes.Count!=items.Count||r.Codes.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=items.Count||items.Any(x=>!r.Codes.Contains(x.Module.Code,StringComparer.OrdinalIgnoreCase)))throw new AppException(400,"invalid_order","El orden debe incluir exactamente todos los módulos configurados.");for(var i=0;i<r.Codes.Count;i++)items.Single(x=>x.Module.Code.Equals(r.Codes[i],StringComparison.OrdinalIgnoreCase)).DisplayOrder=i;await db.SaveChangesAsync(ct);return NoContent();}
+    [HttpGet("validation")] public async Task<IReadOnlyList<ValidationIssue>> Validation(Guid eventId,CancellationToken ct){await Accessible(eventId,ct);var active=await db.EventModules.Where(x=>x.EventId==eventId&&x.IsEnabled).Select(x=>x.ModuleId).ToListAsync(ct);return await db.ModuleDependencies.Include(x=>x.Module).Include(x=>x.RequiredModule).Where(x=>active.Contains(x.ModuleId)&&!active.Contains(x.RequiredModuleId)).Select(x=>new ValidationIssue("missing_dependency",x.Module.Code+" requiere "+x.RequiredModule.Code+".",new[]{x.Module.Code,x.RequiredModule.Code})).ToListAsync(ct);}
+    [AllowAnonymous,HttpGet("navigation")]
+    public async Task<IReadOnlyList<EventModuleDto>> Navigation(Guid eventId,CancellationToken ct){var authenticated=current.IsAuthenticated;var userId=current.Id;var isStaff=authenticated&&await db.Set<EventMember>().AnyAsync(x=>x.EventId==eventId&&x.UserId==userId,ct);var isOwner=authenticated&&await db.Events.AnyAsync(x=>x.Id==eventId&&x.OrganizerId==userId,ct);return await Query(eventId).Where(x=>x.IsEnabled&&(x.Audience==ModuleAudience.Public||(authenticated&&x.Audience==ModuleAudience.Authenticated)||(isStaff&&x.Audience==ModuleAudience.Staff)||(isOwner&&x.Audience==ModuleAudience.Organizer))).OrderBy(x=>x.DisplayOrder).Select(x=>Map(x)).ToListAsync(ct);}
+    private IQueryable<EventModule> Query(Guid id)=>db.EventModules.Include(x=>x.Module).Where(x=>x.EventId==id);
+    private async Task Accessible(Guid id,CancellationToken ct){if(!await db.Events.AnyAsync(x=>x.Id==id&&(x.OrganizerId==current.Id||x.Members.Any(m=>m.UserId==current.Id)),ct))throw new AppException(404,"event_not_found","Evento no encontrado.");}
+    private async Task Owned(Guid id,CancellationToken ct){if(!await db.Events.AnyAsync(x=>x.Id==id&&x.OrganizerId==current.Id,ct))throw new AppException(404,"event_not_found","Evento no encontrado.");}
+    private static EventModuleDto Map(EventModule x)=>new(x.Module.Code,x.Module.Name,x.Module.Category,x.Module.Icon,x.IsEnabled,x.DisplayOrder,x.IsFeatured,x.Audience.ToString(),x.ConfigurationJson);
+}
