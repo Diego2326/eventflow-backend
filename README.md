@@ -59,3 +59,5 @@ Flujo recomendado:
 Nunca se ejecutan migraciones automáticamente al iniciar una instancia de producción.
 
 El archivo `.env.example` contiene el inventario completo de configuración. Copia sus valores a las variables de Cloud Run y guarda `ConnectionStrings__Default`, `Jwt__Key` y `Google__ClientSecret` en Secret Manager. El archivo `.env` está ignorado por Git y excluido de ambas imágenes Docker.
+
+`.env.cloudbuild` es un archivo local de apoyo para preparar valores de despliegue; está ignorado por Git y contiene placeholders hasta que agregues tus valores reales. Cloud Build/Cloud Run debe recibir `ConnectionStrings__Default`, `Jwt__Key` y `Google__ClientSecret` desde Secret Manager, no desde un archivo versionado.
