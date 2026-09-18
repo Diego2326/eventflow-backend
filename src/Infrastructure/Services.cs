@@ -64,3 +64,40 @@ public static class SeedData
     }
     private static string TemplateName(string code) => code switch { "WEDDING"=>"Boda", "BIRTHDAY"=>"XV años / Cumpleaños", "GRADUATION"=>"Graduación", "CONFERENCE"=>"Congreso / Conferencia", "CORPORATE"=>"Evento empresarial", "EXPO"=>"Feria / Exposición", "JOB_FAIR"=>"Feria de empleo", "FESTIVAL"=>"Concierto / Festival", "TOURNAMENT"=>"Torneo deportivo / gaming", "HACKATHON"=>"Hackathon", "WORKSHOP"=>"Taller / Capacitación", "RETREAT"=>"Retiro / Campamento", "TRIP"=>"Excursión / Viaje grupal", "GALA"=>"Cena / Gala / Premiación", _=>"Personalizado" };
 }
+
+public static class DemoSeedData
+{
+    private static readonly (string Name, string Email, string Phone, string Password)[] DemoUsers =
+    [
+        ("Ana Organizadora", "ana.organizadora@eventflow.demo", "+502 5555 0101", "EventFlowDemo1!"),
+        ("Carlos Organizador", "carlos.organizador@eventflow.demo", "+502 5555 0102", "EventFlowDemo2!"),
+    ];
+
+    public static async Task EnsureSeededAsync(EventFlowDbContext db, CancellationToken ct = default)
+    {
+        var organizer = await db.Roles.SingleAsync(role => role.Name == "Organizer", ct);
+        var passwordService = new PasswordService();
+
+        foreach (var demo in DemoUsers)
+        {
+            var normalizedEmail = demo.Email.ToUpperInvariant();
+            if (await db.Users.AnyAsync(user => user.NormalizedEmail == normalizedEmail, ct)) continue;
+
+            var user = new Domain.User
+            {
+                Name = demo.Name,
+                Email = demo.Email,
+                NormalizedEmail = normalizedEmail,
+                Phone = demo.Phone,
+                NormalizedPhone = new string(demo.Phone.Where(char.IsDigit).ToArray()),
+                PasswordHash = passwordService.Hash(demo.Password),
+                Status = Domain.AccountStatus.Active,
+            };
+            user.Preference.User = user;
+            user.UserRoles.Add(new Domain.UserRole { User = user, Role = organizer });
+            db.Users.Add(user);
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+}

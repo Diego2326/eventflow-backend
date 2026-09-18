@@ -12,6 +12,9 @@
   <Folder Name="/src/Infrastructure/">
     <Project Path="src/Infrastructure/EventFlow.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/src/Migrator/">
+    <Project Path="src/Migrator/EventFlow.Migrator.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/EventFlow.Tests/EventFlow.Tests.csproj" />
   </Folder>
