@@ -19,7 +19,16 @@ dotnet ef database update --project src/Infrastructure --startup-project src/Api
 ASPNETCORE_ENVIRONMENT=Development dotnet run --project src/Api --urls http://localhost:5080
 ```
 
-Configura la conexión mediante variables de entorno. Swagger se publica en `/swagger`.
+Configura la conexión mediante variables de entorno. Las superficies operativas son:
+
+- `/status`: página HTML de estado para operadores.
+- `/status/json`: estado mínimo en JSON para automatización.
+- `/swagger`: Swagger UI interactivo (`/swagger/v1/swagger.json` contiene el documento OpenAPI).
+- `/health/live`: liveness probe, no toca la base de datos.
+- `/health/ready`: readiness probe, valida la conexión a PostgreSQL.
+- `/health`: todos los health checks.
+
+Cada solicitud incluye `X-Trace-Id` y se registra como JSON en stdout con método, ruta, estado, duración y trace id. En Cloud Run, consulta esos eventos en Cloud Logging; la API no expone un endpoint público de logs para evitar filtrar información sensible.
 
 ## Contenedores para Google Cloud Run
 
