@@ -1,1 +1,15 @@
-/.env
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Gradle
+.gradle/
+build/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+
+# Operating system
+.DS_Store
