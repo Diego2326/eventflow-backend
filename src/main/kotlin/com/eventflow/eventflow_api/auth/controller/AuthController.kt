@@ -1,6 +1,8 @@
 package com.eventflow.eventflow_api.auth.controller
 
+import com.eventflow.eventflow_api.auth.dto.LoginRequest
 import com.eventflow.eventflow_api.auth.dto.RegisterRequest
+import com.eventflow.eventflow_api.auth.dto.AuthResponse
 import com.eventflow.eventflow_api.auth.service.AuthService
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.responses.ApiResponse
@@ -34,5 +36,12 @@ class AuthController (
     ): ResponseEntity<Void> {
         authService.register(request)
         return ResponseEntity.status(HttpStatus.CREATED).build()
+    }
+
+    @PostMapping("/login")
+    fun login(
+        @Valid @RequestBody request: LoginRequest
+    ): ResponseEntity<AuthResponse> {
+        return ResponseEntity.ok(authService.login(request))
     }
 }
