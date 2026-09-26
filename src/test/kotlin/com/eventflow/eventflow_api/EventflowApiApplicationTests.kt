@@ -76,5 +76,16 @@ class EventflowApiApplicationTests {
         assertEquals("Capilla", experience.mapPoints.single().title)
         assertEquals(InvitationStatus.ACCEPTED, invitationService.rsvp(token, RsvpRequest(true, listOf("Carlos"))).status)
         assertEquals(AssistanceStatus.RECEIVED, invitationService.assistance(token, GuestAssistanceRequest("UBICACION", "No encuentro mi mesa", "Entrada")).status)
+
+        val guestVerification = requireNotNull(authService.register(RegisterRequest(
+            name = "Sofía Invitada", email = "sofia@example.com", password = "Strong#Pass1", phone = "+50255550002"
+        )))
+        authService.verifyEmail(guestVerification)
+        val guestUserId = authService.login(LoginRequest("sofia@example.com", "Strong#Pass1"), "test", "127.0.0.1").userId
+        assertEquals(created.id, invitationService.linkAll(guestUserId, listOf(" $token ", token)).single().id)
+        assertEquals(event.id, eventService.list(guestUserId).single().id)
+        assertEquals(created.id, invitationService.mine(guestUserId).single().invitation.id)
+        assertEquals("Boda", invitationService.linkedExperience(guestUserId, created.id).event.name)
+        assertEquals(InvitationStatus.DECLINED, invitationService.linkedRsvp(guestUserId, created.id, RsvpRequest(false)).status)
     }
 }
