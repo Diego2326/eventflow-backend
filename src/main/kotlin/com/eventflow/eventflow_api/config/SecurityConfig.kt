@@ -25,6 +25,7 @@ class SecurityConfig(private val jwtFilter: JwtAuthenticationFilter) {
                     .requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/refresh", "/api/auth/verify-email", "/api/auth/resend-verification", "/api/auth/forgot-password", "/api/auth/reset-password", "/api/auth/google", "/api/auth/confirm-email-change").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/invitations/access/**").permitAll()
                     .requestMatchers(HttpMethod.POST, "/api/invitations/access/*/rsvp").permitAll()
+                    .requestMatchers(HttpMethod.POST, "/api/invitations/access/*/assistance").permitAll()
                     .anyRequest().authenticated()
             }
             .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter::class.java)
