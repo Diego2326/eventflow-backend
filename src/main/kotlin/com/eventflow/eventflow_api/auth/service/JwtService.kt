@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import com.eventflow.eventflow_api.auth.model.User
 import java.util.Date
+import java.util.UUID
 
 @Service
 class JwtService (
@@ -17,7 +18,7 @@ class JwtService (
             Keys.hmacShaKeyFor(
                 Decoders.BASE64.decode(jwtSecret)
             )
-    fun generateToken(user: User): String {
+    fun generateToken(user: User, sessionId: UUID): String {
         val now = Date()
 
         val expiration = Date(
@@ -27,9 +28,12 @@ class JwtService (
             .subject(user.id.toString())
             .claim("email", user.email)
             .claim("name", user.name)
+            .claim("sid", sessionId.toString())
+            .claim("roles", user.roles.map { it.name })
             .issuedAt(now)
             .expiration(expiration)
             .signWith(getSigningKey())
             .compact()
     }
+    fun parse(token: String) = Jwts.parser().verifyWith(getSigningKey()).build().parseSignedClaims(token).payload
 }
