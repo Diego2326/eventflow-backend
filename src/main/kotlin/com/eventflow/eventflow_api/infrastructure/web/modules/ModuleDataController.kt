@@ -16,4 +16,7 @@ import java.util.UUID
     @DeleteMapping("/records/{id}") @ResponseStatus(HttpStatus.NO_CONTENT) fun archive(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID)=s.archive(a.userId(),eventId,id)
     @PostMapping("/records/{id}/actions") @ResponseStatus(HttpStatus.CREATED) fun action(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID,@RequestBody r:ModuleActionRequest)=s.action(a.userId(),eventId,id,r)
     @GetMapping("/records/{id}/actions") fun actions(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID)=s.actionList(a.userId(),eventId,id)
+    @GetMapping("/records/{id}/poll-results") fun pollResults(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID)=s.pollResults(a.userId(),eventId,id)
+    @GetMapping("/map/search") fun mapSearch(a:Authentication,@PathVariable eventId:UUID,@RequestParam q:String)=s.mapSearch(a.userId(),eventId,q)
+    @GetMapping("/map/my-location") fun myMapLocation(a:Authentication,@PathVariable eventId:UUID)=s.myMapLocation(a.userId(),eventId)
 }

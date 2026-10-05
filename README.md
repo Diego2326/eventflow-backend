@@ -1,6 +1,6 @@
 # EventFlow API
 
-Backend modular de EventFlow basado en Spring Boot 4, Kotlin, PostgreSQL, Flyway y JWT. Implementa el alcance del DERCAS v2.0: identidad, marketplace, eventos configurables, invitaciones, ejecución y módulos especializados reutilizables.
+Backend modular de EventFlow basado en Spring Boot 4, Kotlin, PostgreSQL, Flyway y JWT. Cubre el ciclo base del DERCAS v2.0: identidad, marketplace, eventos configurables, invitaciones, ejecución y un motor de datos para módulos especializados.
 
 ## Arquitectura
 
@@ -65,7 +65,9 @@ Los tipos de evento aplican las plantillas sugeridas del DERCAS; el organizador 
 - Disponibilidad: `/api/offerings/{id}/availability`
 - Reservaciones, decisiones, cancelación, pago simulado y reseña: `/api/reservations/*`
 - Invitaciones, RSVP, regeneración, Event Pass, check-in/out: `/api/events/{id}/invitations` y `/api/invitations/access/{token}`
+- Asignación de mesa, asiento y sector: `PATCH /api/events/{id}/invitations/{invitationId}/seat`; si existe `GST:SEATING_AREA` con el nombre de la mesa, se respeta su capacidad.
 - Agenda, Ahora/Siguiente y favoritos: `/api/events/{id}/agenda`
+- Agenda personal: `GET /api/events/{id}/agenda/mine`
 - Asistencia priorizada: `/api/events/{id}/assistance`
 - Avisos segmentados y mensajería: `/api/events/{id}/notifications`, `/messages`
 - Archivos privados: `/api/events/{id}/files`
@@ -107,7 +109,7 @@ Las acciones (`JOIN`, `RESERVE`, `VOTE`, `SAVE`, `CHECK_IN`, `CANCEL`, etc.) gua
 - Roles, endpoints administrativos y pertenencia por evento.
 - Tokens aleatorios almacenados únicamente como SHA-256.
 - Separación estricta por `event_id` en toda consulta operativa.
-- Límites de cupo, check-in idempotente, política de reingreso y conflictos de reservación.
+- Límites de cupo, historial de check-in y check-out, política de reingreso y conflictos de reservación.
 - Errores JSON uniformes sin trazas internas.
 - Auditoría para cambios operativos y administrativos.
 - Eliminación diferida con anonimización programada.
@@ -117,5 +119,19 @@ Las acciones (`JOIN`, `RESERVE`, `VOTE`, `SAVE`, `CHECK_IN`, `CANCEL`, etc.) gua
 ```bash
 ./gradlew test
 ```
+
+## Alcance pendiente
+
+Los módulos de segunda etapa tienen reglas para pedidos, encuestas, preguntas, mapa y respuestas posteriores, pero todavía requieren flujos específicos para cubrir todos sus criterios del DERCAS. `ORD` valida artículos, cantidades y cupo, calcula el total, controla las transiciones del pedido y avisa al invitado si `NOT` está habilitado. `INT:POLL` valida opciones, aplica la regla de voto único o múltiple y oculta resultados hasta su publicación. `INT:QUESTION` usa un tablero, moderación opcional y voto único; otros tipos de `INT` todavía requieren reglas específicas. `MAP` oculta zonas no publicadas y permite buscar puntos y localizar la mesa del invitado. `REV:SURVEY_RESPONSE` exige evento finalizado y limita a una respuesta por invitado y encuesta. `CAL` genera recordatorios en la app hasta 15 minutos antes de las actividades favoritas cuando `NOT` está habilitado. Faltan encuestas anónimas y otras reglas específicas de `GAL` y `RSC`. Las extensiones de prioridad baja quedan fuera de esta etapa.
+
+Para crear un pedido en `ORD:ORDER`, el payload contiene `items` con `itemId` y `quantity`, por ejemplo `{ "items": [{ "itemId": "<uuid>", "quantity": 2 }], "location": "Mesa 8" }`. Cada `ORD:MENU_ITEM` requiere `price` no negativo y puede declarar `available`; su `capacity` representa existencias. El personal con permiso `ORDERS` avanza el pedido mediante `PATCH /api/events/{eventId}/module-data/records/{recordId}` y el invitado puede cancelarlo mientras esté pendiente.
+
+Una encuesta `INT:POLL` recibe `options` como lista de objetos `{ "id": "a", "label": "Opción A" }`, `allowMultiple` y `resultsPublished`. Cada voto usa una acción `VOTE` con `{ "optionId": "a" }`. `GET /api/events/{eventId}/module-data/records/{recordId}/poll-results` entrega el conteo al organizador y al invitado después de publicar resultados.
+
+Un tablero `INT:QUESTION_BOARD` define `moderationRequired` y `allowVotes`. El invitado crea `INT:QUESTION` con `parentRecordId` del tablero; el organizador aprueba mediante `PATCH` con `status: "ACTIVE"`.
+
+El mapa admite `GET /api/events/{eventId}/module-data/map/search?q=...` y `/map/my-location`. Los registros `MAP:ZONE` y `MAP:POINT` pueden definir `visible`, `tableLabel` y `sectorLabel` en su payload. Las respuestas `REV:SURVEY_RESPONSE` indican la encuesta en `parentRecordId`.
+
+El comprobante `GET /api/reservations/{id}/payments/{paymentId}/receipt` incluye referencia, monto, fecha y el aviso explícito de que el pago es una simulación académica.
 
 Las pruebas usan H2 en modo PostgreSQL para cargar el contexto y validar el mapeo ORM sin depender de una base externa. En despliegue, Flyway ejecuta las migraciones PostgreSQL de `src/main/resources/db/migration`.

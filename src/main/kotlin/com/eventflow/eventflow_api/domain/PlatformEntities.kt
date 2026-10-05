@@ -198,6 +198,7 @@ class NotificationEntity(
     @Column(name = "audience_value") var audienceValue: String? = null,
     @Column(nullable = false) var channel: String = "IN_APP",
     @Column(nullable = false) var active: Boolean = true,
+    @Column(name = "dedupe_key", unique = true) var dedupeKey: String? = null,
     @Column(name = "created_at", nullable = false) var createdAt: Instant = Instant.now()
 )
 

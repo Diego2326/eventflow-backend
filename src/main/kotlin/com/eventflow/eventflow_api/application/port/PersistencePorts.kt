@@ -53,12 +53,15 @@ interface InvitationRepositoryPort : CrudPort<Invitation, UUID> {
 }
 interface GuestAccessLogRepositoryPort : CrudPort<GuestAccessLog, UUID> {
     fun findAllByInvitationIdOrderByCreatedAt(invitationId: UUID): List<GuestAccessLog>
+    fun findAllByInvitationIdIn(invitationIds: Collection<UUID>): List<GuestAccessLog>
 }
 interface AgendaItemRepositoryPort : CrudPort<AgendaItem, UUID> {
     fun findAllByEventIdOrderByStartsAt(eventId: UUID): List<AgendaItem>
+    fun findAllByStartsAtBetweenAndStatusNot(from: Instant, to: Instant, status: String): List<AgendaItem>
 }
 interface AgendaFavoriteRepositoryPort : CrudPort<AgendaFavorite, AgendaFavoriteId> {
     fun findAllByUserId(userId: UUID): List<AgendaFavorite>
+    fun findAllByAgendaItemIdIn(agendaItemIds: Collection<UUID>): List<AgendaFavorite>
 }
 interface AssistanceRequestRepositoryPort : CrudPort<AssistanceRequest, UUID> {
     fun findAllByEventIdOrderByPriorityDescCreatedAtAsc(eventId: UUID): List<AssistanceRequest>
@@ -66,6 +69,7 @@ interface AssistanceRequestRepositoryPort : CrudPort<AssistanceRequest, UUID> {
 }
 interface NotificationRepositoryPort : CrudPort<NotificationEntity, UUID> {
     fun findAllByEventIdAndActiveTrueOrderByCreatedAtDesc(eventId: UUID): List<NotificationEntity>
+    fun existsByDedupeKey(dedupeKey: String): Boolean
 }
 interface ConversationMessageRepositoryPort : CrudPort<ConversationMessage, UUID> {
     fun findAllByEventIdAndChannelOrderByCreatedAt(eventId: UUID, channel: String): List<ConversationMessage>

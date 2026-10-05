@@ -12,6 +12,9 @@ import com.eventflow.eventflow_api.application.invitation.CreateInvitationReques
 import com.eventflow.eventflow_api.application.invitation.GuestAssistanceRequest
 import com.eventflow.eventflow_api.application.invitation.InvitationService
 import com.eventflow.eventflow_api.application.invitation.RsvpRequest
+import com.eventflow.eventflow_api.application.modules.ModuleDataService
+import com.eventflow.eventflow_api.application.operations.OperationsService
+import com.eventflow.eventflow_api.application.operations.AgendaReminderService
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -28,6 +31,9 @@ class EventflowApiApplicationTests {
     @Autowired lateinit var agendaItems: AgendaItemRepository
     @Autowired lateinit var notifications: NotificationRepository
     @Autowired lateinit var mapRecords: ModuleRecordRepository
+    @Autowired lateinit var moduleData: ModuleDataService
+    @Autowired lateinit var operations: OperationsService
+    @Autowired lateinit var reminders: AgendaReminderService
 
     @Test fun contextLoads() = Unit
 
@@ -75,7 +81,14 @@ class EventflowApiApplicationTests {
         assertEquals("Ceremonia", experience.agenda.single().title)
         assertEquals("Bienvenidos", experience.notifications.single().title)
         assertEquals("Capilla", experience.mapPoints.single().title)
+        mapRecords.save(ModuleRecord(eventId = event.id, moduleCode = "MAP", recordType = "POINT", title = "Oculto", payload = "{\"visible\":false}"))
+        mapRecords.save(ModuleRecord(eventId = event.id, moduleCode = "MAP", recordType = "POINT", title = "Mesa 8", payload = "{\"tableLabel\":\"Mesa 8\"}"))
         assertEquals(InvitationStatus.ACCEPTED, invitationService.rsvp(token, RsvpRequest(true, listOf("Carlos"))).status)
+        val beforeCheckIn = eventService.dashboard(userId, event.id)
+        assertEquals(1, beforeCheckIn.acceptedGuests)
+        assertEquals(2, beforeCheckIn.remainingCapacity)
+        invitationService.check(userId, event.id, created.id, com.eventflow.eventflow_api.application.invitation.CheckRequest(1), true)
+        assertEquals(1, eventService.dashboard(userId, event.id).remainingCapacity)
         assertEquals(AssistanceStatus.RECEIVED, invitationService.assistance(token, GuestAssistanceRequest("UBICACION", "No encuentro mi mesa", "Entrada")).status)
 
         val guestVerification = requireNotNull(authService.register(RegisterRequest(
@@ -86,7 +99,16 @@ class EventflowApiApplicationTests {
         assertEquals(created.id, invitationService.linkAll(guestUserId, listOf(" $token ", token)).single().id)
         assertEquals(event.id, eventService.list(guestUserId).single().id)
         assertEquals(created.id, invitationService.mine(guestUserId).single().invitation.id)
+        val ceremony = agendaItems.findAllByEventIdOrderByStartsAt(event.id).single()
+        operations.favorite(guestUserId, event.id, requireNotNull(ceremony.id), true)
+        assertEquals("Ceremonia", operations.myAgenda(guestUserId, event.id).single().title)
+        assertTrue(reminders.generate(startsAt.minusSeconds(600)) >= 1)
+        assertEquals(0, reminders.generate(startsAt.minusSeconds(600)))
+        assertEquals("Mesa 8", moduleData.myMapLocation(guestUserId, event.id).single().title)
+        assertEquals(0, moduleData.mapSearch(guestUserId, event.id, "Oculto").size)
+        assertEquals("Mesa 8", moduleData.mapSearch(guestUserId, event.id, "Mesa").single().title)
         assertEquals("Boda", invitationService.linkedExperience(guestUserId, created.id).event.name)
         assertEquals(InvitationStatus.DECLINED, invitationService.linkedRsvp(guestUserId, created.id, RsvpRequest(false)).status)
+        assertEquals(1, eventService.dashboard(userId, event.id).declinedGuests)
     }
 }

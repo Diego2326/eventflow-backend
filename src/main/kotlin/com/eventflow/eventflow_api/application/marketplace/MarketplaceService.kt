@@ -17,6 +17,8 @@ data class ReservationRequest(val eventId:UUID,val offeringId:UUID,val startsAt:
 data class DecisionRequest(val accepted:Boolean)
 data class PaymentRequest(val amount:BigDecimal,val status:String="PAID")
 data class ReviewRequest(val rating:Int,val comment:String?=null)
+data class SimulatedReceipt(val reference:String,val reservationId:UUID,val eventId:UUID,val offeringId:UUID,
+    val amount:BigDecimal,val status:String,val paidAt:Instant,val notice:String="COMPROBANTE DE SIMULACIÓN ACADÉMICA: no acredita un pago real")
 
 @Service class MarketplaceService(private val offerings:MarketplaceOfferingRepositoryPort,private val availability:OfferingAvailabilityRepositoryPort,private val reservations:ReservationRepositoryPort,private val payments:SimulatedPaymentRepositoryPort,private val reviews:ReviewRepositoryPort,private val events:EventService){
     @Transactional fun create(userId:UUID,r:OfferingRequest):MarketplaceOffering{validateOffering(r);return offerings.save(MarketplaceOffering(ownerUserId=userId,type=r.type,name=r.name.trim(),category=r.category,description=r.description,location=r.location,capacity=r.capacity,price=r.price,attributes=r.attributes,imageUrls=r.imageUrls))}
@@ -31,6 +33,14 @@ data class ReviewRequest(val rating:Int,val comment:String?=null)
     @Transactional fun cancel(userId:UUID,id:UUID):Reservation{val r=findReservation(id);val o=offerings.findById(r.offeringId).orElseThrow{NotFoundException("Publicación no encontrada")};if(r.requesterUserId!=userId&&o.ownerUserId!=userId)throw ForbiddenException("No puedes cancelar esta reservación");if(r.status in setOf(ReservationStatus.CANCELLED,ReservationStatus.COMPLETED))throw ConflictException("La reservación no se puede cancelar");r.status=ReservationStatus.CANCELLED;return r}
     @Transactional fun payment(userId:UUID,id:UUID,r:PaymentRequest):SimulatedPayment{val res=findReservation(id);if(res.requesterUserId!=userId)throw ForbiddenException("No puedes registrar este pago");if(res.status!=ReservationStatus.ACCEPTED)throw ConflictException("La reservación debe estar aceptada");if(r.amount<=BigDecimal.ZERO||r.status!="PAID")throw BadRequestException("Pago simulado inválido");if(payments.findAllByReservationId(id).any{it.status=="PAID"})throw ConflictException("La reservación ya tiene un pago");return payments.save(SimulatedPayment(reservationId=id,amount=r.amount,status="PAID",reference="SIM-${UUID.randomUUID().toString().uppercase()}"))}
     @Transactional(readOnly=true) fun receipts(userId:UUID,id:UUID):List<SimulatedPayment>{val res=findReservation(id);val owner=offerings.findById(res.offeringId).map{it.ownerUserId}.orElse(null);if(res.requesterUserId!=userId&&owner!=userId)throw ForbiddenException("No puedes consultar estos comprobantes");return payments.findAllByReservationId(id)}
+    @Transactional(readOnly=true) fun receipt(userId:UUID,reservationId:UUID,paymentId:UUID):SimulatedReceipt{
+        val reservation=findReservation(reservationId)
+        val owner=offerings.findById(reservation.offeringId).map{it.ownerUserId}.orElse(null)
+        if(reservation.requesterUserId!=userId&&owner!=userId)throw ForbiddenException("No puedes consultar este comprobante")
+        val payment=payments.findById(paymentId).orElseThrow{NotFoundException("Pago no encontrado")}
+        if(payment.reservationId!=reservationId)throw NotFoundException("Pago no encontrado")
+        return SimulatedReceipt(payment.reference,reservationId,reservation.eventId,reservation.offeringId,payment.amount,payment.status,payment.paidAt)
+    }
     @Transactional fun complete(userId:UUID,id:UUID):Reservation{val res=findReservation(id);ownOffering(userId,res.offeringId);if(res.status!=ReservationStatus.ACCEPTED)throw ConflictException("Solo una reservación aceptada puede concluir");res.status=ReservationStatus.COMPLETED;return res}
     @Transactional fun review(userId:UUID,id:UUID,r:ReviewRequest):Review{val res=findReservation(id);if(res.requesterUserId!=userId||res.status!=ReservationStatus.COMPLETED)throw ForbiddenException("La contratación no es elegible");if(r.rating !in 1..5)throw BadRequestException("Calificación inválida");if(reviews.existsByReservationIdAndAuthorUserId(id,userId))throw ConflictException("Ya calificaste esta contratación");return reviews.save(Review(reservationId=id,authorUserId=userId,rating=r.rating,comment=r.comment))}
     private fun ownOffering(userId:UUID,id:UUID)=offerings.findById(id).orElseThrow{NotFoundException("Publicación no encontrada")}.also{if(it.ownerUserId!=userId)throw ForbiddenException("No eres propietario")}

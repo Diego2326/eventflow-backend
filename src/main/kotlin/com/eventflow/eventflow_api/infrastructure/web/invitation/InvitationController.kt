@@ -13,6 +13,7 @@ import java.util.UUID
     @GetMapping("/events/{eventId}/invitations") fun list(a:Authentication,@PathVariable eventId:UUID)=service.list(a.userId(),eventId)
     @PostMapping("/events/{eventId}/invitations/{id}/revoke") fun revoke(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID)=service.revoke(a.userId(),eventId,id)
     @PostMapping("/events/{eventId}/invitations/{id}/regenerate") fun regenerate(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID)=service.regenerate(a.userId(),eventId,id)
+    @PatchMapping("/events/{eventId}/invitations/{id}/seat") fun assignSeat(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID,@RequestBody r:SeatAssignmentRequest)=service.assignSeat(a.userId(),eventId,id,r)
     @PostMapping("/events/{eventId}/invitations/{id}/check-in") fun checkin(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID,@RequestBody r:CheckRequest)=service.check(a.userId(),eventId,id,r,true)
     @PostMapping("/events/{eventId}/invitations/{id}/check-out") fun checkout(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID,@RequestBody r:CheckRequest)=service.check(a.userId(),eventId,id,r,false)
     @PostMapping("/events/{eventId}/check-in") fun checkinQr(a:Authentication,@PathVariable eventId:UUID,@RequestBody r:QrCheckRequest)=service.checkQr(a.userId(),eventId,r,true)

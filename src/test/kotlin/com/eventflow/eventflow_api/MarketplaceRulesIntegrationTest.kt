@@ -6,6 +6,7 @@ import com.eventflow.eventflow_api.application.marketplace.*
 import com.eventflow.eventflow_api.auth.model.User
 import com.eventflow.eventflow_api.common.BadRequestException
 import com.eventflow.eventflow_api.common.ConflictException
+import com.eventflow.eventflow_api.common.ForbiddenException
 import com.eventflow.eventflow_api.domain.OfferingType
 import com.eventflow.eventflow_api.infrastructure.persistence.UserRepository
 import org.junit.jupiter.api.Assertions.*
@@ -41,7 +42,9 @@ class MarketplaceRulesIntegrationTest {
         assertThrows(ConflictException::class.java) { service.payment(client, reservationId, PaymentRequest(BigDecimal.TEN)) }
         service.decide(provider, reservationId, DecisionRequest(true))
         assertThrows(BadRequestException::class.java) { service.payment(client, reservationId, PaymentRequest(BigDecimal.TEN, "REFUNDED")) }
-        service.payment(client, reservationId, PaymentRequest(BigDecimal.TEN))
+        val payment = service.payment(client, reservationId, PaymentRequest(BigDecimal.TEN))
+        assertTrue(service.receipt(client, reservationId, requireNotNull(payment.id)).notice.contains("SIMULACIÓN ACADÉMICA"))
+        assertThrows(ForbiddenException::class.java) { service.receipt(user(), reservationId, requireNotNull(payment.id)) }
         assertThrows(ConflictException::class.java) { service.payment(client, reservationId, PaymentRequest(BigDecimal.TEN)) }
     }
 

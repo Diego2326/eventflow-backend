@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.ZoneId
 import java.util.UUID
 
 data class CreateEventRequest(val name: String, val type: String, val startsAt: Instant, val endsAt: Instant? = null,
@@ -27,7 +28,8 @@ data class ConfigureModuleRequest(val enabled: Boolean = true, val order: Int = 
 data class ModuleResponse(val code: String, val name: String, val category: String, val description: String, val enabled: Boolean = true,
     val order: Int = 0, val featured: Boolean = false, val configuration: Map<String, Any?> = emptyMap())
 data class DashboardResponse(val event: EventResponse, val activeModules: Int, val invitations: Int, val acceptedGuests: Int,
-    val checkedIn: Int, val reservations: Int, val pendingAssistance: Int)
+    val checkedIn: Int, val reservations: Int, val pendingAssistance: Int,
+    val pendingGuests: Int, val declinedGuests: Int, val checkedOut: Int, val remainingCapacity: Int)
 data class CollaboratorRequest(val userId:UUID,val permissions:Set<String>)
 
 @Service
@@ -59,9 +61,10 @@ class EventService(
     @Transactional(readOnly = true) fun get(userId: UUID, eventId: UUID): EventResponse = accessible(userId,eventId).toResponse()
     @Transactional fun update(userId: UUID, eventId: UUID, r: UpdateEventRequest): EventResponse {
         val e=owned(userId,eventId); val start=r.startsAt?:e.startsAt; val end=r.endsAt?:e.endsAt; validateDates(start,end)
+        if(e.status in setOf(EventStatus.FINISHED,EventStatus.CANCELLED))throw ConflictException("El evento ya está cerrado")
         r.name?.let { if(it.isBlank()) throw BadRequestException("El nombre es obligatorio") else e.name=it.trim() }
-        e.startsAt=start; e.endsAt=end; r.timezone?.let{e.timezone=it}; r.location?.let{e.location=it}; r.estimatedCapacity?.let{e.estimatedCapacity=it}
-        r.budget?.let{e.budget=it}; r.description?.let{e.description=it}; r.reentryAllowed?.let{e.reentryAllowed=it}; e.updatedAt=Instant.now(); return e.toResponse()
+        e.startsAt=start; e.endsAt=end; r.timezone?.let{if(runCatching{ZoneId.of(it)}.isFailure)throw BadRequestException("Zona horaria inválida");e.timezone=it}; r.location?.let{e.location=it}; r.estimatedCapacity?.let{if(it<1)throw BadRequestException("Capacidad inválida");e.estimatedCapacity=it}
+        r.budget?.let{if(it<BigDecimal.ZERO)throw BadRequestException("Presupuesto inválido");e.budget=it}; r.description?.let{e.description=it}; r.reentryAllowed?.let{e.reentryAllowed=it}; e.updatedAt=Instant.now(); return e.toResponse()
     }
     @Transactional fun transition(userId: UUID,eventId: UUID,status: EventStatus): EventResponse {
         val e=owned(userId,eventId)
@@ -95,10 +98,19 @@ class EventService(
         return ModuleResponse(c.code,c.name,c.category,c.description,em.enabled,em.displayOrder,em.featured,r.configuration)
     }
     @Transactional(readOnly = true) fun dashboard(userId:UUID,eventId:UUID):DashboardResponse {
-        val e=owned(userId,eventId); val inv=invitations.findAllByEventId(eventId); val checked=inv.sumOf{i->accessLogs.findAllByInvitationIdOrderByCreatedAt(requireNotNull(i.id)).sumOf{if(it.action=="CHECK_IN")it.quantity else -it.quantity}.coerceAtLeast(0)}
-        return DashboardResponse(e.toResponse(),eventModules.findAllByEventIdOrderByDisplayOrder(eventId).count{it.enabled},inv.size,inv.count{it.status==InvitationStatus.ACCEPTED},checked,reservations.findAllByEventId(eventId).size,assistance.findAllByEventIdOrderByPriorityDescCreatedAtAsc(eventId).count{it.status !in setOf(AssistanceStatus.ATTENDED,AssistanceStatus.CANCELLED)})
+        val e=owned(userId,eventId)
+        val inv=invitations.findAllByEventId(eventId).filter{it.revokedAt==null}
+        val ids=inv.map{requireNotNull(it.id)}
+        val logs=if(ids.isEmpty()) emptyList() else accessLogs.findAllByInvitationIdIn(ids)
+        val checked=logs.groupBy{it.invitationId}.values.sumOf{history->history.sumOf{if(it.action=="CHECK_IN")it.quantity else -it.quantity}.coerceAtLeast(0)}
+        val out=logs.filter{it.action=="CHECK_OUT"}.sumOf{it.quantity}
+        return DashboardResponse(e.toResponse(),eventModules.findAllByEventIdOrderByDisplayOrder(eventId).count{it.enabled},inv.size,
+            inv.count{it.status==InvitationStatus.ACCEPTED},checked,reservations.findAllByEventId(eventId).size,
+            assistance.findAllByEventIdOrderByPriorityDescCreatedAtAsc(eventId).count{it.status !in setOf(AssistanceStatus.ATTENDED,AssistanceStatus.CANCELLED)},
+            inv.count{it.status==InvitationStatus.PENDING},inv.count{it.status==InvitationStatus.DECLINED},out,
+            (inv.filter{it.status==InvitationStatus.ACCEPTED}.sumOf{it.allowedCapacity}-checked).coerceAtLeast(0))
     }
-    @Transactional fun addCollaborator(userId:UUID,eventId:UUID,r:CollaboratorRequest):EventCollaborator{ownerOnly(userId,eventId);if(r.userId==userId)throw BadRequestException("El propietario ya administra el evento");return collaborators.save(EventCollaborator(eventId,r.userId,r.permissions.map{it.uppercase()}.joinToString(",")))}
+    @Transactional fun addCollaborator(userId:UUID,eventId:UUID,r:CollaboratorRequest):EventCollaborator{ownerOnly(userId,eventId);if(r.userId==userId)throw BadRequestException("El propietario ya administra el evento");if(r.permissions.isEmpty()||r.permissions.any{it.isBlank()||',' in it})throw BadRequestException("Selecciona permisos válidos");return collaborators.save(EventCollaborator(eventId,r.userId,r.permissions.map{it.trim().uppercase()}.joinToString(",")))}
     @Transactional(readOnly=true) fun listCollaborators(userId:UUID,eventId:UUID):List<EventCollaborator>{ownerOnly(userId,eventId);return collaborators.findAllByEventId(eventId)}
     @Transactional fun removeCollaborator(userId:UUID,eventId:UUID,collaboratorId:UUID){ownerOnly(userId,eventId);collaborators.deleteById(EventCollaboratorId(eventId,collaboratorId))}
     fun ownerOnly(userId:UUID,eventId:UUID):EventEntity {val e=events.findById(eventId).orElseThrow{NotFoundException("Evento no encontrado")};if(e.ownerUserId!=userId)throw ForbiddenException("Solo el propietario puede realizar esta operación");return e}

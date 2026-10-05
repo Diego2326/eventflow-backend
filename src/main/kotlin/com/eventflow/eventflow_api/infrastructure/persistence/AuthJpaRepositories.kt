@@ -5,6 +5,7 @@ import com.eventflow.eventflow_api.auth.model.AuthToken
 import com.eventflow.eventflow_api.auth.model.AuthTokenType
 import com.eventflow.eventflow_api.auth.model.UserSession
 import com.eventflow.eventflow_api.auth.model.NotificationPreference
+import com.eventflow.eventflow_api.auth.model.UserStatus
 import com.eventflow.eventflow_api.application.port.*
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Modifying
@@ -17,6 +18,7 @@ interface UserRepository : JpaRepository<User, UUID>, UserRepositoryPort {
     override fun findByEmail(email: String): User?
     override fun findByPhoneNumber(phoneNumber: String): User?
     override fun findByGoogleSubject(googleSubject: String): User?
+    override fun findAllByStatusAndDeletionRequestedAtBefore(status: UserStatus, cutoff: Instant): List<User>
     @Query(value = "select u.* from users u join phone_prefix p on p.phone_prefix_id=u.user_phone_prefix_id where concat(p.phone_prefix,u.user_phone_number)=:phone limit 1", nativeQuery = true)
     override fun findByInternationalPhone(phone: String): User?
 }

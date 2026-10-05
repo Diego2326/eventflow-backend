@@ -23,6 +23,11 @@ data class MessageRequest(val channel:String,val body:String,val recipientUserId
     @Transactional fun deleteAgenda(userId:UUID,eventId:UUID,id:UUID){eventService.authorized(userId,eventId,"AGENDA");val i=item(eventId,id);i.status="CANCELLED"}
     @Transactional(readOnly=true) fun agenda(userId:UUID,eventId:UUID):List<AgendaItem>{eventService.requireVisibleModule(userId,eventId,"CAL");return agenda.findAllByEventIdOrderByStartsAt(eventId)}
     @Transactional(readOnly=true) fun nowNext(userId:UUID,eventId:UUID):NowNextResponse{val all=agenda(userId,eventId).filter{it.status!="CANCELLED"};val now=Instant.now();return NowNextResponse(all.firstOrNull{!now.isBefore(it.startsAt)&&now.isBefore(it.endsAt)},all.firstOrNull{it.startsAt.isAfter(now)})}
+    @Transactional(readOnly=true) fun myAgenda(userId:UUID,eventId:UUID):List<AgendaItem>{
+        eventService.requireVisibleModule(userId,eventId,"CAL")
+        val favoriteIds=favorites.findAllByUserId(userId).map{it.agendaItemId}.toSet()
+        return agenda.findAllByEventIdOrderByStartsAt(eventId).filter{it.id in favoriteIds&&it.status!="CANCELLED"}
+    }
     @Transactional fun favorite(userId:UUID,eventId:UUID,id:UUID,on:Boolean){eventService.requireVisibleModule(userId,eventId,"CAL");val activity=item(eventId,id);if(on&&activity.status=="CANCELLED")throw ConflictException("La actividad está cancelada");val key=AgendaFavoriteId(id,userId);if(on&&!favorites.existsById(key))favorites.save(AgendaFavorite(id,userId))else if(!on)favorites.deleteById(key)}
     @Transactional fun assistance(userId:UUID,eventId:UUID,r:AssistanceRequestDto):AssistanceRequest{
         eventService.requireVisibleModule(userId,eventId,"AST")

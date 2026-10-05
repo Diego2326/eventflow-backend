@@ -4,14 +4,17 @@ import com.eventflow.eventflow_api.application.event.CreateEventRequest
 import com.eventflow.eventflow_api.application.event.EventService
 import com.eventflow.eventflow_api.application.event.ConfigureModuleRequest
 import com.eventflow.eventflow_api.application.modules.ModuleDataService
+import com.eventflow.eventflow_api.application.modules.ModuleRecordUpdate
 import com.eventflow.eventflow_api.application.storage.StorageService
 import com.eventflow.eventflow_api.application.invitation.InvitationService
 import com.eventflow.eventflow_api.application.invitation.CreateInvitationRequest
 import com.eventflow.eventflow_api.application.invitation.QrCheckRequest
 import com.eventflow.eventflow_api.application.invitation.RsvpRequest
+import com.eventflow.eventflow_api.application.invitation.SeatAssignmentRequest
 import com.eventflow.eventflow_api.common.NotFoundException
 import com.eventflow.eventflow_api.common.ForbiddenException
 import com.eventflow.eventflow_api.common.BadRequestException
+import com.eventflow.eventflow_api.common.ConflictException
 import com.eventflow.eventflow_api.domain.*
 import com.eventflow.eventflow_api.infrastructure.persistence.*
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -51,6 +54,29 @@ class ModuleVisibilityIntegrationTest {
             invitationService.checkQr(owner, eventId, QrCheckRequest("eventflow:invite:${created.id}"), true)
         }
         assertEquals(1, invitationService.checkQr(owner, eventId, QrCheckRequest(requireNotNull(created.qrPayload)), true).checkedIn)
+    }
+
+    @Test fun `seating area capacity and seat uniqueness are enforced`() {
+        val owner = requireNotNull(users.save(com.eventflow.eventflow_api.auth.model.User(
+            name = "Seat Owner", email = "seat-${UUID.randomUUID()}@example.com", passwordHash = "unused"
+        )).id)
+        val eventId = events.create(owner, CreateEventRequest("Seating", "CUSTOM", Instant.now().plusSeconds(3600))).id
+        listOf("INV", "GST").forEach { code ->
+            catalog.save(ModuleCatalog(code, code, "Core", code))
+            events.configureModule(owner, eventId, code, ConfigureModuleRequest())
+        }
+        val area = records.save(ModuleRecord(eventId = eventId, moduleCode = "GST", recordType = "SEATING_AREA", title = "Mesa A", capacity = 2))
+        val first = invitationService.create(owner, eventId, CreateInvitationRequest("First", allowedCapacity = 2, table = "Mesa A", seat = "A1"))
+        assertThrows(ConflictException::class.java) { modules.update(owner,eventId,requireNotNull(area.id),ModuleRecordUpdate(capacity=1)) }
+        assertThrows(ConflictException::class.java) {
+            invitationService.create(owner, eventId, CreateInvitationRequest("Second", table = "Mesa A", seat = "A2"))
+        }
+        val second = invitationService.create(owner, eventId, CreateInvitationRequest("Second"))
+        assertThrows(ConflictException::class.java) {
+            invitationService.assignSeat(owner, eventId, second.id, SeatAssignmentRequest("Mesa A", "A1"))
+        }
+        invitationService.revoke(owner, eventId, first.id)
+        assertEquals("Mesa A", invitationService.assignSeat(owner, eventId, second.id, SeatAssignmentRequest("Mesa A", "A1")).table)
     }
 
     @Test fun `direct record and action endpoints honor guest visibility`() {
@@ -101,5 +127,6 @@ class ModuleVisibilityIntegrationTest {
         linked.revokedAt = Instant.now()
         invitations.save(linked)
         assertThrows(ForbiddenException::class.java) { events.get(otherGuest, eventId) }
+        assertEquals(0, invitationService.mine(otherGuest).size)
     }
 }

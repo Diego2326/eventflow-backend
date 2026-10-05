@@ -56,6 +56,7 @@ class AuthService(
     fun verifyEmail(raw: String) {
         val token = validToken(raw, AuthTokenType.EMAIL_VERIFICATION)
         val user = userRepository.findById(token.userId).orElseThrow { NotFoundException("Usuario no encontrado") }
+        if (user.status != UserStatus.PENDING_VERIFICATION) throw ConflictException("La cuenta no admite verificación")
         user.status = UserStatus.ACTIVE; user.emailVerifiedAt = Instant.now(); user.updatedAt = Instant.now(); token.usedAt = Instant.now()
     }
 
@@ -118,6 +119,7 @@ class AuthService(
     @Transactional
     fun forgotPassword(email: String): String? {
         val user = userRepository.findByEmail(email.trim().lowercase()) ?: return null
+        if (user.status !in setOf(UserStatus.ACTIVE, UserStatus.DELETION_PENDING)) return null
         tokenRepository.revokeActive(requireNotNull(user.id), AuthTokenType.PASSWORD_RESET, Instant.now())
         val raw = issueToken(requireNotNull(user.id), AuthTokenType.PASSWORD_RESET, Duration.ofMinutes(30))
         sendLink(user.email, "Restablece tu contraseña de EventFlow", "${settings.frontendUrl}/reset-password?token=$raw")
@@ -129,6 +131,7 @@ class AuthService(
         validatePassword(request.password)
         val token = validToken(request.token, AuthTokenType.PASSWORD_RESET)
         val user = userRepository.findById(token.userId).orElseThrow { NotFoundException("Usuario no encontrado") }
+        if (user.status !in setOf(UserStatus.ACTIVE, UserStatus.DELETION_PENDING)) throw ConflictException("La cuenta no admite recuperación")
         user.passwordHash = requireNotNull(passwordEncoder.encode(request.password)); user.updatedAt = Instant.now(); token.usedAt = Instant.now()
         sessionRepository.revokeAll(requireNotNull(user.id), Instant.now())
     }
@@ -153,7 +156,7 @@ class AuthService(
     }
 
     @Transactional fun requestEmailChange(userId:UUID,emailRaw:String):String?{val email=emailRaw.trim().lowercase();if(!email.contains('@'))throw BadRequestException("Correo inválido");if(userRepository.existsByEmail(email))throw ConflictException("El correo ya está registrado");val user=user(userId);user.pendingEmail=email;tokenRepository.revokeActive(userId,AuthTokenType.EMAIL_CHANGE,Instant.now());val raw=issueToken(userId,AuthTokenType.EMAIL_CHANGE,Duration.ofHours(2));sendLink(email,"Confirma tu nuevo correo de EventFlow","${settings.frontendUrl}/confirm-email-change?token=$raw");return raw.takeIf{settings.exposeTokens}}
-    @Transactional fun confirmEmailChange(raw:String){val token=validToken(raw,AuthTokenType.EMAIL_CHANGE);val user=user(token.userId);val email=user.pendingEmail?:throw ConflictException("No existe cambio de correo pendiente");if(userRepository.existsByEmail(email))throw ConflictException("El correo ya está registrado");user.email=email;user.pendingEmail=null;user.emailVerifiedAt=Instant.now();user.updatedAt=Instant.now();token.usedAt=Instant.now();sessionRepository.revokeAll(requireNotNull(user.id),Instant.now())}
+    @Transactional fun confirmEmailChange(raw:String){val token=validToken(raw,AuthTokenType.EMAIL_CHANGE);val user=user(token.userId);if(user.status !in setOf(UserStatus.ACTIVE,UserStatus.DELETION_PENDING))throw ConflictException("La cuenta no admite cambio de correo");val email=user.pendingEmail?:throw ConflictException("No existe cambio de correo pendiente");if(userRepository.existsByEmail(email))throw ConflictException("El correo ya está registrado");user.email=email;user.pendingEmail=null;user.emailVerifiedAt=Instant.now();user.updatedAt=Instant.now();token.usedAt=Instant.now();sessionRepository.revokeAll(requireNotNull(user.id),Instant.now())}
 
     private fun setStatusAndRevoke(userId: UUID, status: UserStatus) { val user=user(userId); user.status=status; user.updatedAt=Instant.now(); sessionRepository.revokeAll(userId, Instant.now()) }
     private fun user(id: UUID) = userRepository.findById(id).orElseThrow { NotFoundException("Usuario no encontrado") }

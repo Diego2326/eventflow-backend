@@ -10,6 +10,7 @@ interface UserRepositoryPort : CrudPort<User, UUID> {
     fun findByPhoneNumber(phoneNumber: String): User?
     fun findByGoogleSubject(googleSubject: String): User?
     fun findByInternationalPhone(phone: String): User?
+    fun findAllByStatusAndDeletionRequestedAtBefore(status: UserStatus, cutoff: Instant): List<User>
 }
 interface AuthTokenRepositoryPort : CrudPort<AuthToken, UUID> {
     fun findByTokenHashAndType(tokenHash: String, type: AuthTokenType): AuthToken?

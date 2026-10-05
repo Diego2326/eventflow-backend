@@ -23,6 +23,7 @@ import java.util.UUID
     @PostMapping("/reservations/{id}/cancel") fun cancel(a:Authentication,@PathVariable id:UUID)=s.cancel(a.userId(),id)
     @PostMapping("/reservations/{id}/payments") @ResponseStatus(HttpStatus.CREATED) fun pay(a:Authentication,@PathVariable id:UUID,@RequestBody r:PaymentRequest)=s.payment(a.userId(),id,r)
     @GetMapping("/reservations/{id}/payments") fun receipts(a:Authentication,@PathVariable id:UUID)=s.receipts(a.userId(),id)
+    @GetMapping("/reservations/{id}/payments/{paymentId}/receipt") fun receipt(a:Authentication,@PathVariable id:UUID,@PathVariable paymentId:UUID)=s.receipt(a.userId(),id,paymentId)
     @PostMapping("/reservations/{id}/complete") fun complete(a:Authentication,@PathVariable id:UUID)=s.complete(a.userId(),id)
     @PostMapping("/reservations/{id}/reviews") @ResponseStatus(HttpStatus.CREATED) fun review(a:Authentication,@PathVariable id:UUID,@RequestBody r:ReviewRequest)=s.review(a.userId(),id,r)
 }

@@ -43,14 +43,24 @@ interface InvitationRepository : JpaRepository<Invitation, UUID>, InvitationRepo
 }
 interface GuestAccessLogRepository : JpaRepository<GuestAccessLog, UUID>, GuestAccessLogRepositoryPort {
     override fun findAllByInvitationIdOrderByCreatedAt(invitationId: UUID): List<GuestAccessLog>
+    override fun findAllByInvitationIdIn(invitationIds: Collection<UUID>): List<GuestAccessLog>
 }
-interface AgendaItemRepository : JpaRepository<AgendaItem, UUID>, AgendaItemRepositoryPort { override fun findAllByEventIdOrderByStartsAt(eventId: UUID): List<AgendaItem> }
-interface AgendaFavoriteRepository : JpaRepository<AgendaFavorite, AgendaFavoriteId>, AgendaFavoriteRepositoryPort { override fun findAllByUserId(userId: UUID): List<AgendaFavorite> }
+interface AgendaItemRepository : JpaRepository<AgendaItem, UUID>, AgendaItemRepositoryPort {
+    override fun findAllByEventIdOrderByStartsAt(eventId: UUID): List<AgendaItem>
+    override fun findAllByStartsAtBetweenAndStatusNot(from: Instant, to: Instant, status: String): List<AgendaItem>
+}
+interface AgendaFavoriteRepository : JpaRepository<AgendaFavorite, AgendaFavoriteId>, AgendaFavoriteRepositoryPort {
+    override fun findAllByUserId(userId: UUID): List<AgendaFavorite>
+    override fun findAllByAgendaItemIdIn(agendaItemIds: Collection<UUID>): List<AgendaFavorite>
+}
 interface AssistanceRequestRepository : JpaRepository<AssistanceRequest, UUID>, AssistanceRequestRepositoryPort {
     override fun findAllByEventIdOrderByPriorityDescCreatedAtAsc(eventId: UUID): List<AssistanceRequest>
     override fun findAllByInvitationIdOrderByCreatedAtDesc(invitationId: UUID): List<AssistanceRequest>
 }
-interface NotificationRepository : JpaRepository<NotificationEntity, UUID>, NotificationRepositoryPort { override fun findAllByEventIdAndActiveTrueOrderByCreatedAtDesc(eventId: UUID): List<NotificationEntity> }
+interface NotificationRepository : JpaRepository<NotificationEntity, UUID>, NotificationRepositoryPort {
+    override fun findAllByEventIdAndActiveTrueOrderByCreatedAtDesc(eventId: UUID): List<NotificationEntity>
+    override fun existsByDedupeKey(dedupeKey: String): Boolean
+}
 interface ConversationMessageRepository : JpaRepository<ConversationMessage, UUID>, ConversationMessageRepositoryPort {
     override fun findAllByEventIdAndChannelOrderByCreatedAt(eventId: UUID, channel: String): List<ConversationMessage>
     @Query("select m from ConversationMessage m where m.eventId=:eventId and m.channel=:channel and " +
