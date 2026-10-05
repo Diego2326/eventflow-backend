@@ -2,6 +2,18 @@
 
 Backend modular de EventFlow basado en Spring Boot 4, Kotlin, PostgreSQL, Flyway y JWT. Implementa el alcance del DERCAS v2.0: identidad, marketplace, eventos configurables, invitaciones, ejecución y módulos especializados reutilizables.
 
+## Arquitectura
+
+La API se organiza en tres capas:
+
+- `domain`: estados, reglas del ciclo de vida y modelos del negocio.
+- `application`: servicios y casos de uso por función, contratos de entrada y puertos para persistencia y servicios externos.
+- `infrastructure`: controladores HTTP, repositorios Spring Data, adaptadores de correo, Google, JWT, contraseñas, JSON y almacenamiento, además de seguridad y configuración.
+
+Los controladores dependen de la aplicación. Los servicios de aplicación dependen de puertos y no importan infraestructura, HTTP, Spring Data ni Jackson. Los repositorios Spring Data implementan los puertos de persistencia. Las reglas de creación y transición de eventos viven en casos de uso independientes de Spring y JPA. `ArchitectureBoundaryTest` comprueba estas fronteras.
+
+Las entidades persistentes siguen compartidas con el dominio y anotadas con JPA; los servicios transaccionales siguen usando anotaciones Spring. Esta es una adaptación pragmática que conserva el mapeo, el seguimiento de cambios de Hibernate y los contratos actuales de la API.
+
 ## Requisitos
 
 - Java 25

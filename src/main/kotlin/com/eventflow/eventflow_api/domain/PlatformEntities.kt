@@ -6,12 +6,12 @@ import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
 
-enum class EventStatus { DRAFT, PUBLISHED, RUNNING, FINISHED, CANCELLED }
 enum class OfferingType { SPACE, SERVICE }
 enum class OfferingStatus { DRAFT, ACTIVE, INACTIVE }
 enum class ReservationStatus { PENDING, ACCEPTED, REJECTED, CANCELLED, COMPLETED }
 enum class InvitationStatus { PENDING, ACCEPTED, DECLINED }
 enum class AssistanceStatus { RECEIVED, ACCEPTED, ON_THE_WAY, ATTENDED, CANCELLED }
+enum class FileModerationStatus { PENDING, ACTIVE, REJECTED }
 
 @Entity @Table(name = "event")
 class EventEntity(
@@ -241,6 +241,8 @@ class ModuleAction(
     @Column(name = "actor_user_id") var actorUserId: UUID? = null,
     @Column(name = "invitation_id") var invitationId: UUID? = null,
     @Column(name = "action_type", nullable = false) var actionType: String,
+    @Column(nullable = false) var quantity: Int = 1,
+    @Column(name = "unique_action", nullable = false) var uniqueAction: Boolean = true,
     @Column(nullable = false, columnDefinition = "text") var payload: String = "{}",
     @Column(name = "created_at", nullable = false) var createdAt: Instant = Instant.now()
 )
@@ -304,6 +306,8 @@ class FileAsset(
     @Column(name = "original_name", nullable = false) var originalName: String,
     @Column(name = "content_type", nullable = false) var contentType: String,
     @Column(name = "size_bytes", nullable = false) var sizeBytes: Long,
+    @Column(name = "recipient_user_id") var recipientUserId: UUID? = null,
+    @Enumerated(EnumType.STRING) @Column(name = "moderation_status", nullable = false) var moderationStatus: FileModerationStatus = FileModerationStatus.ACTIVE,
     @Column(nullable = false) var active: Boolean = true,
     @Column(name = "created_at", nullable = false) var createdAt: Instant = Instant.now()
 )

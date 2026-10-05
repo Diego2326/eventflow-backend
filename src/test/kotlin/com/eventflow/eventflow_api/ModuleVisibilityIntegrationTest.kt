@@ -1,0 +1,105 @@
+package com.eventflow.eventflow_api
+
+import com.eventflow.eventflow_api.application.event.CreateEventRequest
+import com.eventflow.eventflow_api.application.event.EventService
+import com.eventflow.eventflow_api.application.event.ConfigureModuleRequest
+import com.eventflow.eventflow_api.application.modules.ModuleDataService
+import com.eventflow.eventflow_api.application.storage.StorageService
+import com.eventflow.eventflow_api.application.invitation.InvitationService
+import com.eventflow.eventflow_api.application.invitation.CreateInvitationRequest
+import com.eventflow.eventflow_api.application.invitation.QrCheckRequest
+import com.eventflow.eventflow_api.application.invitation.RsvpRequest
+import com.eventflow.eventflow_api.common.NotFoundException
+import com.eventflow.eventflow_api.common.ForbiddenException
+import com.eventflow.eventflow_api.common.BadRequestException
+import com.eventflow.eventflow_api.domain.*
+import com.eventflow.eventflow_api.infrastructure.persistence.*
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.test.context.SpringBootTest
+import java.time.Instant
+import java.util.UUID
+
+@SpringBootTest
+class ModuleVisibilityIntegrationTest {
+    @Autowired lateinit var events: EventService
+    @Autowired lateinit var modules: ModuleDataService
+    @Autowired lateinit var catalog: ModuleCatalogRepository
+    @Autowired lateinit var records: ModuleRecordRepository
+    @Autowired lateinit var actions: ModuleActionRepository
+    @Autowired lateinit var invitations: InvitationRepository
+    @Autowired lateinit var users: UserRepository
+    @Autowired lateinit var files: FileAssetRepository
+    @Autowired lateinit var storage: StorageService
+    @Autowired lateinit var invitationService: InvitationService
+
+    @Test fun `QR check in requires the invitation credential`() {
+        val owner = requireNotNull(users.save(com.eventflow.eventflow_api.auth.model.User(
+            name = "QR Owner", email = "qr-${UUID.randomUUID()}@example.com", passwordHash = "unused"
+        )).id)
+        val eventId = events.create(owner, CreateEventRequest("QR", "CUSTOM", Instant.now().plusSeconds(3600))).id
+        listOf("INV", "GST").forEach { code ->
+            catalog.save(ModuleCatalog(code, code, "Core", code))
+            events.configureModule(owner, eventId, code, ConfigureModuleRequest())
+        }
+        events.transition(owner, eventId, EventStatus.PUBLISHED)
+        val created = invitationService.create(owner, eventId, CreateInvitationRequest("Guest"))
+        invitationService.rsvp(requireNotNull(created.token), RsvpRequest(true))
+        assertThrows(BadRequestException::class.java) {
+            invitationService.checkQr(owner, eventId, QrCheckRequest("eventflow:invite:${created.id}"), true)
+        }
+        assertEquals(1, invitationService.checkQr(owner, eventId, QrCheckRequest(requireNotNull(created.qrPayload)), true).checkedIn)
+    }
+
+    @Test fun `direct record and action endpoints honor guest visibility`() {
+        val owner = requireNotNull(users.save(com.eventflow.eventflow_api.auth.model.User(
+            name = "Owner", email = "owner-${UUID.randomUUID()}@example.com", passwordHash = "unused"
+        )).id)
+        val guest = requireNotNull(users.save(com.eventflow.eventflow_api.auth.model.User(
+            name = "Guest", email = "guest-${UUID.randomUUID()}@example.com", passwordHash = "unused"
+        )).id)
+        val otherGuest = requireNotNull(users.save(com.eventflow.eventflow_api.auth.model.User(
+            name = "Other", email = "other-${UUID.randomUUID()}@example.com", passwordHash = "unused"
+        )).id)
+        val eventId = events.create(owner, CreateEventRequest("Visible", "CUSTOM", Instant.now().plusSeconds(3600))).id
+        listOf("GAL", "RSC", "ORD").forEach { code ->
+            catalog.save(ModuleCatalog(code, code, "Contenido", code))
+            events.configureModule(owner, eventId, code, ConfigureModuleRequest())
+        }
+        listOf(guest, otherGuest).forEach { userId ->
+            invitations.save(Invitation(eventId = eventId, linkedUserId = userId,
+                guestName = "Guest", tokenHash = UUID.randomUUID().toString().replace("-", "")))
+        }
+        val pending = records.save(ModuleRecord(eventId = eventId, moduleCode = "GAL",
+            recordType = "PHOTO", ownerUserId = guest, status = "PENDING"))
+        val order = records.save(ModuleRecord(eventId = eventId, moduleCode = "ORD",
+            recordType = "ORDER", ownerUserId = guest))
+        val certificate = records.save(ModuleRecord(eventId = eventId, moduleCode = "RSC",
+            recordType = "CERTIFICATE", payload = "{\"recipientUserId\":\"$guest\"}"))
+        val orderId = requireNotNull(order.id)
+        actions.save(ModuleAction(moduleRecordId = orderId, actorUserId = guest, actionType = "SAVE"))
+
+        assertThrows(NotFoundException::class.java) { modules.get(otherGuest, eventId, requireNotNull(pending.id)) }
+        assertThrows(NotFoundException::class.java) { modules.get(otherGuest, eventId, orderId) }
+        assertThrows(NotFoundException::class.java) { modules.get(otherGuest, eventId, requireNotNull(certificate.id)) }
+        assertThrows(NotFoundException::class.java) { modules.actionList(otherGuest, eventId, orderId) }
+        assertEquals(1, modules.actionList(guest, eventId, orderId).size)
+        assertEquals(1, modules.actionList(owner, eventId, orderId).size)
+
+        val pendingFile = files.save(FileAsset(eventId = eventId, uploaderUserId = guest,
+            moduleCode = "GAL", objectPath = "test/${UUID.randomUUID()}",
+            originalName = "photo.jpg", contentType = "image/jpeg", sizeBytes = 3,
+            moderationStatus = FileModerationStatus.PENDING))
+        assertEquals(0, storage.list(otherGuest, eventId, "GAL").size)
+        assertEquals(1, storage.list(guest, eventId, "GAL").size)
+        storage.moderate(owner, eventId, requireNotNull(pendingFile.id), FileModerationStatus.ACTIVE)
+        assertEquals(1, storage.list(otherGuest, eventId, "GAL").size)
+
+        val linked = invitations.findAllByLinkedUserId(otherGuest).single()
+        linked.revokedAt = Instant.now()
+        invitations.save(linked)
+        assertThrows(ForbiddenException::class.java) { events.get(otherGuest, eventId) }
+    }
+}

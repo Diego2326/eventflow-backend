@@ -2,15 +2,16 @@ package com.eventflow.eventflow_api
 
 import com.eventflow.eventflow_api.auth.dto.LoginRequest
 import com.eventflow.eventflow_api.auth.dto.RegisterRequest
-import com.eventflow.eventflow_api.auth.service.AuthService
-import com.eventflow.eventflow_api.event.CreateEventRequest
-import com.eventflow.eventflow_api.event.EventService
-import com.eventflow.eventflow_api.event.ConfigureModuleRequest
+import com.eventflow.eventflow_api.application.auth.AuthService
+import com.eventflow.eventflow_api.application.event.CreateEventRequest
+import com.eventflow.eventflow_api.application.event.EventService
+import com.eventflow.eventflow_api.application.event.ConfigureModuleRequest
 import com.eventflow.eventflow_api.domain.*
-import com.eventflow.eventflow_api.invitation.CreateInvitationRequest
-import com.eventflow.eventflow_api.invitation.GuestAssistanceRequest
-import com.eventflow.eventflow_api.invitation.InvitationService
-import com.eventflow.eventflow_api.invitation.RsvpRequest
+import com.eventflow.eventflow_api.infrastructure.persistence.*
+import com.eventflow.eventflow_api.application.invitation.CreateInvitationRequest
+import com.eventflow.eventflow_api.application.invitation.GuestAssistanceRequest
+import com.eventflow.eventflow_api.application.invitation.InvitationService
+import com.eventflow.eventflow_api.application.invitation.RsvpRequest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
