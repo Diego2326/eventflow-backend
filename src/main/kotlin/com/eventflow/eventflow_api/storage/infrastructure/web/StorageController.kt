@@ -15,10 +15,10 @@ import java.util.UUID
 @RestController @RequestMapping("/api/events/{eventId}/files") class StorageController(private val s:StorageService){
     @PostMapping(consumes=[MediaType.MULTIPART_FORM_DATA_VALUE]) @ResponseStatus(HttpStatus.CREATED)
     fun upload(a:Authentication,@PathVariable eventId:UUID,@RequestParam module:String,@RequestPart file:MultipartFile,
-               @RequestParam(required=false) recipientUserId:UUID?):FileResponse {
+               @RequestParam(required=false) recipientUserId:UUID?,@RequestParam(defaultValue="false") official:Boolean):FileResponse {
         if (file.isEmpty || file.size > 10 * 1024 * 1024)
             throw BadRequestException("El archivo está vacío o supera 10 MB")
-        return s.upload(a.userId(),eventId,module,file.originalFilename,file.contentType,file.bytes,recipientUserId)
+        return s.upload(a.userId(),eventId,module,file.originalFilename,file.contentType,file.bytes,recipientUserId,official)
     }
     @GetMapping fun list(a:Authentication,@PathVariable eventId:UUID,@RequestParam module:String)=s.list(a.userId(),eventId,module)
     @GetMapping("/{id}") fun download(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID):ResponseEntity<ByteArray>{val file=s.download(a.userId(),eventId,id);return ResponseEntity.ok().contentType(MediaType.parseMediaType(file.contentType)).header(HttpHeaders.CONTENT_DISPOSITION,"inline; filename=\"${file.fileName}\"").body(file.bytes)}

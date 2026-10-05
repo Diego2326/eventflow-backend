@@ -7,4 +7,5 @@ import java.util.UUID
 
 interface EventRepositoryPort : CrudPort<EventEntity, UUID> {
     fun findAccessible(userId: UUID): List<EventEntity>
+    fun findLocked(id: UUID): EventEntity?
 }

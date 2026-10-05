@@ -166,6 +166,13 @@ class EventService(
         if(code=="AST")config["categories"]?.let { value ->
             if(value !is List<*>||value.any{it !is String||it.isBlank()})throw BadRequestException("categories debe contener categorías válidas")
         }
+        if(code=="INT"){
+            if(config["guestbookModeration"]!=null&&config["guestbookModeration"] !is Boolean)
+                throw BadRequestException("guestbookModeration debe ser verdadero o falso")
+            config["maxSongRequestsPerUser"]?.let{value->
+                if(value.toString().toIntOrNull() !in 1..20)throw BadRequestException("maxSongRequestsPerUser debe estar entre 1 y 20")
+            }
+        }
     }
     fun guestUploadsAllowed(eventId:UUID,module:String):Boolean {
         requireModule(eventId,module)

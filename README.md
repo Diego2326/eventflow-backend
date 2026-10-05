@@ -30,12 +30,15 @@ openssl rand -base64 32
 
 La API queda en `http://localhost:5080/api` y Swagger en `http://localhost:5080/swagger-ui`.
 
+La guía de integración del frontend está organizada por módulo en [docs/frontend/README.md](docs/frontend/README.md).
+
 ## Configuración externa
 
 - Correo: variables estándar `SPRING_MAIL_*`. Si no existe proveedor, la cuenta y el token se crean, pero no se intenta un envío.
 - Google: `GOOGLE_CLIENT_ID`. El backend valida el ID token directamente contra Google y comprueba audiencia y correo verificado.
 - Archivos: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` y `SUPABASE_BUCKET`. Los objetos nunca exponen la service key; se descargan mediante un endpoint autenticado que valida acceso al evento.
 - Administración inicial: registra y verifica una cuenta, define su correo en `BOOTSTRAP_ADMIN_EMAIL` y reinicia una vez para asignarle `ADMIN`.
+- Encuestas anónimas: configura una clave estable en `SURVEY_ANONYMITY_KEY`. Si se omite, se usa `JWT_SECRET`. Cambiarla impide reconocer respuestas previas en encuestas aún activas.
 - `AUTH_EXPOSE_TOKENS=true` devuelve tokens de verificación/recuperación únicamente para desarrollo y pruebas. Debe permanecer desactivado en producción.
 
 ## Contratos principales
@@ -124,7 +127,11 @@ Las acciones (`JOIN`, `RESERVE`, `VOTE`, `SAVE`, `CHECK_IN`, `CANCEL`, etc.) gua
 
 ## Alcance pendiente
 
-Los módulos de segunda etapa tienen reglas para pedidos, encuestas, preguntas, mapa y respuestas posteriores, pero todavía requieren flujos específicos para cubrir todos sus criterios del DERCAS. `ORD` valida artículos, cantidades y cupo, calcula el total, controla las transiciones del pedido y avisa al invitado si `NOT` está habilitado. `INT:POLL` valida opciones, aplica la regla de voto único o múltiple y oculta resultados hasta su publicación. `INT:QUESTION` usa un tablero, moderación opcional y voto único; otros tipos de `INT` todavía requieren reglas específicas. `MAP` oculta zonas no publicadas y permite buscar puntos y localizar la mesa del invitado. `REV:SURVEY_RESPONSE` exige evento finalizado y limita a una respuesta por invitado y encuesta. `CAL` genera recordatorios en la app hasta 15 minutos antes de las actividades favoritas cuando `NOT` está habilitado. Faltan encuestas anónimas y otras reglas específicas de `GAL` y `RSC`. Las extensiones de prioridad baja quedan fuera de esta etapa.
+Los módulos de segunda etapa tienen reglas para pedidos, encuestas, preguntas, mapa y respuestas posteriores, pero todavía requieren flujos específicos para cubrir todos sus criterios del DERCAS. `ORD` valida artículos, cantidades y cupo, calcula el total, controla las transiciones del pedido y avisa al invitado si `NOT` está habilitado. `INT:POLL` valida opciones, aplica la regla de voto único o múltiple y oculta resultados hasta su publicación. `INT:QUESTION` usa un tablero, moderación opcional y voto único. `MAP` oculta zonas no publicadas y permite buscar puntos y localizar la mesa del invitado. `REV:SURVEY_RESPONSE` exige evento finalizado y limita a una respuesta por invitado y encuesta. `CAL` genera recordatorios en la app hasta 15 minutos antes de las actividades favoritas cuando `NOT` está habilitado.
+
+Las extensiones tienen avances verificables: `QUE` aplica cupo, turno y aviso deduplicado; `BKG` y `TRN` controlan cupos y cancelaciones; `TRN` genera avisos de salida; `INT:TRIVIA` puntúa respuestas, `INT:DRAW` sortea entre invitados con check-in y excluye ganadores anteriores, y el libro de mensajes usa moderación configurable. `NET` limita los perfiles al consentimiento, ofrece sugerencias por intereses, QR de perfil y reuniones con control de choques. `GAM` comprueba hitos, calcula misiones y otorga insignias. `SPT` avanza ganadores en el bracket. `AFO` informa aforo y estado de servicios. `RSC`, `SES` y `EXH` permiten guardar y consultar recursos personales; `RSC` publica certificados privados tras verificar asistencia. `SES` registra asistencia mediante personal. `GAL` distingue galería oficial posterior. `REV` admite encuestas anónimas con respuesta única; `NOT` segmenta también por asistencia a sesión o reserva de transporte.
+
+Siguen pendientes de cerrar criterios específicos del DERCAS: asociación formal entre expositores/stands, sesiones/ponentes/materiales y rutas/salidas, además de una representación QR lista para imprimir (la API entrega el valor para codificar). Las misiones calculan progreso a partir de acciones y las insignias se sincronizan con una llamada explícita; los tipos genéricos restantes necesitan validación de campos y transiciones propias antes de considerarse completos.
 
 Para crear un pedido en `ORD:ORDER`, el payload contiene `items` con `itemId` y `quantity`, por ejemplo `{ "items": [{ "itemId": "<uuid>", "quantity": 2 }], "location": "Mesa 8" }`. Cada `ORD:MENU_ITEM` requiere `price` no negativo y puede declarar `available`; su `capacity` representa existencias. El personal con permiso `ORDERS` avanza el pedido mediante `PATCH /api/events/{eventId}/module-data/records/{recordId}` y el invitado puede cancelarlo mientras esté pendiente.
 

@@ -6,9 +6,14 @@ import com.eventflow.eventflow_api.event.domain.EventEntity
 
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
+import org.springframework.data.jpa.repository.Lock
+import jakarta.persistence.LockModeType
 import java.util.UUID
 
 interface EventRepository : JpaRepository<EventEntity, UUID>, EventRepositoryPort {
     @Query("select distinct e from EventEntity e left join EventCollaborator c on c.eventId=e.id where e.ownerUserId=:userId or c.userId=:userId")
     override fun findAccessible(userId: UUID): List<EventEntity>
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select e from EventEntity e where e.id=:id")
+    override fun findLocked(id: UUID): EventEntity?
 }

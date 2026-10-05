@@ -10,6 +10,7 @@ import com.eventflow.eventflow_api.marketplace.application.MarketplaceService
 import com.eventflow.eventflow_api.marketplace.application.OfferingRequest
 import com.eventflow.eventflow_api.marketplace.application.PaymentRequest
 import com.eventflow.eventflow_api.marketplace.application.ReservationRequest
+import com.eventflow.eventflow_api.marketplace.application.ReviewRequest
 import com.eventflow.eventflow_api.marketplace.domain.OfferingType
 import com.eventflow.eventflow_api.shared.application.error.BadRequestException
 import com.eventflow.eventflow_api.shared.application.error.ConflictException
@@ -52,6 +53,26 @@ class MarketplaceRulesIntegrationTest {
         assertTrue(service.receipt(client, reservationId, requireNotNull(payment.id)).notice.contains("SIMULACIÓN ACADÉMICA"))
         assertThrows(ForbiddenException::class.java) { service.receipt(user(), reservationId, requireNotNull(payment.id)) }
         assertThrows(ConflictException::class.java) { service.payment(client, reservationId, PaymentRequest(BigDecimal.TEN)) }
+    }
+
+    @Test fun `feature availability and computed rating filter offerings`() {
+        val provider=user();val client=user()
+        val event=events.create(client,CreateEventRequest("Filter event","CUSTOM",Instant.now().plusSeconds(3600))).id
+        val offering=service.create(provider,OfferingRequest(OfferingType.SERVICE,"Catering",price=BigDecimal.TEN,
+            attributes="{\"features\":[\"vegan\"]}"))
+        val id=requireNotNull(offering.id)
+        val first=Instant.now().plusSeconds(7200)
+        val reservation=service.reserve(client,ReservationRequest(event,id,first,first.plusSeconds(3600)))
+        service.decide(provider,requireNotNull(reservation.id),DecisionRequest(true))
+        service.complete(provider,requireNotNull(reservation.id))
+        service.review(client,requireNotNull(reservation.id),ReviewRequest(5))
+        assertEquals(listOf(id),service.search(OfferingType.SERVICE,null,null,null,null,
+            minRating=BigDecimal(4),feature="vegan").map{it.id})
+        assertTrue(service.search(OfferingType.SERVICE,null,null,null,null,feature="wifi").none{it.id==id})
+        val blocked=first.plusSeconds(7200)
+        val next=service.reserve(client,ReservationRequest(event,id,blocked,blocked.plusSeconds(3600)))
+        service.decide(provider,requireNotNull(next.id),DecisionRequest(true))
+        assertTrue(service.search(OfferingType.SERVICE,null,null,null,null,startsAt=blocked,endsAt=blocked.plusSeconds(1800)).none{it.id==id})
     }
 
     private fun user() = requireNotNull(users.save(User(name = "Tester", email = "market-${UUID.randomUUID()}@example.com", passwordHash = "unused")).id)

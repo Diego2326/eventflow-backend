@@ -16,13 +16,17 @@ import org.springframework.security.core.Authentication
 import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.web.bind.annotation.*
 import java.math.BigDecimal
+import java.time.Instant
 import java.util.UUID
 
 @RestController @RequestMapping("/api") class MarketplaceController(private val s:MarketplaceService){
     @PostMapping("/offerings") @ResponseStatus(HttpStatus.CREATED) @PreAuthorize("hasAnyRole('SPACE_OWNER','SERVICE_PROVIDER','ADMIN')") fun create(a:Authentication,@RequestBody r:OfferingRequest)=s.create(a.userId(),r)
     @PutMapping("/offerings/{id}") fun update(a:Authentication,@PathVariable id:UUID,@RequestBody r:OfferingRequest)=s.update(a.userId(),id,r)
     @PostMapping("/offerings/{id}/status/{status}") fun status(a:Authentication,@PathVariable id:UUID,@PathVariable status:OfferingStatus)=s.status(a.userId(),id,status)
-    @GetMapping("/offerings") fun search(@RequestParam type:OfferingType,@RequestParam(required=false) category:String?,@RequestParam(required=false) location:String?,@RequestParam(required=false) minCapacity:Int?,@RequestParam(required=false) maxPrice:BigDecimal?,@RequestParam(defaultValue="50") limit:Int)=s.search(type,category,location,minCapacity,maxPrice,limit)
+    @GetMapping("/offerings") fun search(@RequestParam type:OfferingType,@RequestParam(required=false) category:String?,@RequestParam(required=false) location:String?,@RequestParam(required=false) minCapacity:Int?,@RequestParam(required=false) maxPrice:BigDecimal?,@RequestParam(defaultValue="50") limit:Int,
+        @RequestParam(required=false) minRating:BigDecimal?,@RequestParam(required=false) feature:String?,
+        @RequestParam(required=false) startsAt:Instant?,@RequestParam(required=false) endsAt:Instant?)=
+        s.search(type,category,location,minCapacity,maxPrice,limit,minRating,feature,startsAt,endsAt)
     @PostMapping("/offerings/{id}/availability") @ResponseStatus(HttpStatus.CREATED) fun availability(a:Authentication,@PathVariable id:UUID,@RequestBody r:AvailabilityRequest)=s.availability(a.userId(),id,r)
     @GetMapping("/offerings/{id}/availability") fun availability(@PathVariable id:UUID)=s.availability(id)
     @PostMapping("/reservations") @ResponseStatus(HttpStatus.CREATED) fun reserve(a:Authentication,@RequestBody r:ReservationRequest)=s.reserve(a.userId(),r)

@@ -7,6 +7,7 @@ import com.eventflow.eventflow_api.event.application.CreateEventRequest
 import com.eventflow.eventflow_api.event.application.EventService
 import com.eventflow.eventflow_api.event.domain.EventStatus
 import com.eventflow.eventflow_api.invitation.application.CreateInvitationRequest
+import com.eventflow.eventflow_api.invitation.application.CheckRequest
 import com.eventflow.eventflow_api.invitation.application.InvitationService
 import com.eventflow.eventflow_api.invitation.application.QrCheckRequest
 import com.eventflow.eventflow_api.invitation.application.RsvpRequest
@@ -21,6 +22,8 @@ import com.eventflow.eventflow_api.module.domain.ModuleRecord
 import com.eventflow.eventflow_api.module.infrastructure.persistence.ModuleActionRepository
 import com.eventflow.eventflow_api.module.infrastructure.persistence.ModuleCatalogRepository
 import com.eventflow.eventflow_api.module.infrastructure.persistence.ModuleRecordRepository
+import com.eventflow.eventflow_api.notification.domain.NotificationEntity
+import com.eventflow.eventflow_api.notification.infrastructure.persistence.NotificationRepository
 import com.eventflow.eventflow_api.shared.application.error.BadRequestException
 import com.eventflow.eventflow_api.shared.application.error.ConflictException
 import com.eventflow.eventflow_api.shared.application.error.ForbiddenException
@@ -50,6 +53,18 @@ class ModuleVisibilityIntegrationTest {
     @Autowired lateinit var files: FileAssetRepository
     @Autowired lateinit var storage: StorageService
     @Autowired lateinit var invitationService: InvitationService
+    @Autowired lateinit var notifications:NotificationRepository
+
+    @Test fun `unlinked invitation only sees matching notifications`() {
+        val owner=requireNotNull(users.save(User(name="Notice owner",email="notice-${UUID.randomUUID()}@example.com",passwordHash="unused")).id)
+        val eventId=events.create(owner,CreateEventRequest("Notices","CUSTOM",Instant.now().plusSeconds(3600))).id
+        listOf("INV","NOT").forEach{code->catalog.save(ModuleCatalog(code,code,"Core",code));events.configureModule(owner,eventId,code,ConfigureModuleRequest())}
+        events.transition(owner,eventId,EventStatus.PUBLISHED)
+        val invitation=invitationService.create(owner,eventId,CreateInvitationRequest("Guest"))
+        notifications.save(NotificationEntity(eventId=eventId,title="Private table",body="Only A",audienceType="TABLE",audienceValue="A"))
+        notifications.save(NotificationEntity(eventId=eventId,title="Public",body="Everyone",audienceType="ALL"))
+        assertEquals(listOf("Public"),invitationService.experience(requireNotNull(invitation.token)).notifications.map{it.title})
+    }
 
     @Test fun `QR check in requires the invitation credential`() {
         val owner = requireNotNull(users.save(com.eventflow.eventflow_api.auth.domain.User(
@@ -67,6 +82,21 @@ class ModuleVisibilityIntegrationTest {
             invitationService.checkQr(owner, eventId, QrCheckRequest("eventflow:invite:${created.id}"), true)
         }
         assertEquals(1, invitationService.checkQr(owner, eventId, QrCheckRequest(requireNotNull(created.qrPayload)), true).checkedIn)
+    }
+
+    @Test fun `group check in tracks each member without mixing aggregate counts`() {
+        val owner=requireNotNull(users.save(User(name="Group owner",email="group-${UUID.randomUUID()}@example.com",passwordHash="unused")).id)
+        val eventId=events.create(owner,CreateEventRequest("Group","CUSTOM",Instant.now().plusSeconds(3600))).id
+        listOf("INV","GST").forEach{code->catalog.save(ModuleCatalog(code,code,"Core",code));events.configureModule(owner,eventId,code,ConfigureModuleRequest())}
+        events.transition(owner,eventId,EventStatus.PUBLISHED)
+        val invitation=invitationService.create(owner,eventId,CreateInvitationRequest("Lead",allowedCapacity=2))
+        invitationService.rsvp(requireNotNull(invitation.token),RsvpRequest(true,listOf("Companion")))
+        val entered=invitationService.check(owner,eventId,invitation.id,CheckRequest(memberIndex=1),true)
+        assertEquals(1,entered.checkedIn)
+        assertEquals(false,entered.members[0].inside)
+        assertEquals(true,entered.members[1].inside)
+        assertThrows(ConflictException::class.java){invitationService.check(owner,eventId,invitation.id,CheckRequest(memberIndex=1),true)}
+        assertThrows(ConflictException::class.java){invitationService.check(owner,eventId,invitation.id,CheckRequest(quantity=1),true)}
     }
 
     @Test fun `seating area capacity and seat uniqueness are enforced`() {

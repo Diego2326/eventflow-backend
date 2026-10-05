@@ -22,4 +22,7 @@ import java.util.UUID
     @GetMapping("/records/{id}/poll-results") fun pollResults(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID)=s.pollResults(a.userId(),eventId,id)
     @GetMapping("/map/search") fun mapSearch(a:Authentication,@PathVariable eventId:UUID,@RequestParam q:String)=s.mapSearch(a.userId(),eventId,q)
     @GetMapping("/map/my-location") fun myMapLocation(a:Authentication,@PathVariable eventId:UUID)=s.myMapLocation(a.userId(),eventId)
+    @GetMapping("/queues/{id}/position") fun queuePosition(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID)=s.queuePosition(a.userId(),eventId,id)
+    @GetMapping("/networking/suggestions") fun networkingSuggestions(a:Authentication,@PathVariable eventId:UUID)=s.networkingSuggestions(a.userId(),eventId)
+    @GetMapping("/my-resources") fun myResources(a:Authentication,@PathVariable eventId:UUID)=s.myResources(a.userId(),eventId)
 }

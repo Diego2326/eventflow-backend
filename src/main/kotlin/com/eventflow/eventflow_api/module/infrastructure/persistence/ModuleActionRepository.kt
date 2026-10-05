@@ -11,4 +11,6 @@ interface ModuleActionRepository : JpaRepository<ModuleAction, UUID>, ModuleActi
     override fun findAllByModuleRecordIdAndActorUserIdOrderByCreatedAt(moduleRecordId: UUID, actorUserId: UUID): List<ModuleAction>
     override fun existsByModuleRecordIdAndActorUserIdAndActionType(moduleRecordId: UUID, actorUserId: UUID, actionType: String): Boolean
     override fun findByModuleRecordIdAndActorUserIdAndActionType(moduleRecordId: UUID, actorUserId: UUID, actionType: String): ModuleAction?
+    override fun findAllByActorUserIdAndActionTypeInOrderByCreatedAt(actorUserId: UUID, actionTypes: Collection<String>): List<ModuleAction>
+    override fun findAllByModuleRecordIdInAndActionType(moduleRecordIds: Collection<UUID>, actionType: String): List<ModuleAction>
 }

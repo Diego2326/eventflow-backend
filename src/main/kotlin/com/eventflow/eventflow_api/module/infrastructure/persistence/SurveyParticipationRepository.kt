@@ -1,0 +1,7 @@
+package com.eventflow.eventflow_api.module.infrastructure.persistence
+
+import com.eventflow.eventflow_api.module.application.port.SurveyParticipationRepositoryPort
+import com.eventflow.eventflow_api.module.domain.SurveyParticipation
+import org.springframework.data.jpa.repository.JpaRepository
+
+interface SurveyParticipationRepository:JpaRepository<SurveyParticipation,String>,SurveyParticipationRepositoryPort

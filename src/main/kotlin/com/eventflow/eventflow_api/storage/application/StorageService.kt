@@ -1,6 +1,7 @@
 package com.eventflow.eventflow_api.storage.application
 
 import com.eventflow.eventflow_api.event.application.EventService
+import com.eventflow.eventflow_api.event.domain.EventStatus
 import com.eventflow.eventflow_api.shared.application.error.BadRequestException
 import com.eventflow.eventflow_api.shared.application.error.ConflictException
 import com.eventflow.eventflow_api.shared.application.error.ForbiddenException
@@ -16,7 +17,7 @@ import java.util.UUID
 data class FileResponse(
     val id: UUID, val eventId: UUID, val moduleCode: String, val originalName: String,
     val contentType: String, val sizeBytes: Long, val downloadUrl: String,
-    val moderationStatus: FileModerationStatus, val recipientUserId: UUID?
+    val moderationStatus: FileModerationStatus, val recipientUserId: UUID?, val official:Boolean
 )
 
 @Service
@@ -30,13 +31,15 @@ class StorageService(
 
     @Transactional
     fun upload(userId: UUID, eventId: UUID, moduleRaw: String, originalName: String?,
-               contentType: String?, bytes: ByteArray, recipientUserId: UUID? = null): FileResponse {
+               contentType: String?, bytes: ByteArray, recipientUserId: UUID? = null, official:Boolean=false): FileResponse {
         val module = moduleRaw.uppercase()
         eventService.requireVisibleModule(userId, eventId, module)
         val manager = isManager(userId, eventId)
         if (!manager && (module != "GAL" || !eventService.guestUploadsAllowed(eventId, module)))
             throw ForbiddenException("No puedes subir archivos a este módulo")
         if (!manager && recipientUserId != null) throw ForbiddenException("No puedes asignar destinatarios")
+        if(official&&(module!="GAL"||!manager||eventService.accessible(userId,eventId).status!=EventStatus.FINISHED))
+            throw ForbiddenException("La galería oficial se publica después del evento")
         recipientUserId?.let { eventService.accessible(it, eventId) }
         configured()
         if (bytes.isEmpty() || bytes.size > 10 * 1024 * 1024)
@@ -52,7 +55,7 @@ class StorageService(
         val saved = files.save(FileAsset(eventId = eventId, uploaderUserId = userId,
             moduleCode = module, objectPath = path, originalName = safe,
             contentType = type, sizeBytes = bytes.size.toLong(),
-            recipientUserId = recipientUserId, moderationStatus = status))
+            recipientUserId = recipientUserId,moderationStatus = status,official=official))
         return response(saved)
     }
 
@@ -119,5 +122,5 @@ class StorageService(
     private fun response(file: FileAsset) = FileResponse(requireNotNull(file.id), file.eventId,
         file.moduleCode, file.originalName, file.contentType, file.sizeBytes,
         "/api/events/${file.eventId}/files/${file.id}", file.moderationStatus,
-        file.recipientUserId)
+        file.recipientUserId,file.official)
 }

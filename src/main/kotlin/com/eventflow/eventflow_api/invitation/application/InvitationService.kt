@@ -35,10 +35,11 @@ import java.util.Base64
 import java.util.UUID
 
 data class CreateInvitationRequest(val guestName:String,val guestEmail:String?=null,val allowedCapacity:Int=1,val expiresAt:Instant?=null,val table:String?=null,val seat:String?=null,val sector:String?=null)
-data class InvitationResponse(val id:UUID,val eventId:UUID,val guestName:String,val guestEmail:String?,val status:InvitationStatus,val allowedCapacity:Int,val companions:List<String>,val table:String?,val seat:String?,val sector:String?,val token:String?=null,val checkedIn:Int=0,val qrPayload:String?=null)
+data class GroupMemberStatus(val index:Int,val name:String,val inside:Boolean?)
+data class InvitationResponse(val id:UUID,val eventId:UUID,val guestName:String,val guestEmail:String?,val status:InvitationStatus,val allowedCapacity:Int,val companions:List<String>,val table:String?,val seat:String?,val sector:String?,val token:String?=null,val checkedIn:Int=0,val qrPayload:String?=null,val members:List<GroupMemberStatus> = emptyList())
 data class RsvpRequest(val accepted:Boolean,val companions:List<String> = emptyList())
-data class CheckRequest(val quantity:Int=1)
-data class QrCheckRequest(val qrPayload:String,val quantity:Int=1)
+data class CheckRequest(val quantity:Int=1,val memberIndex:Int?=null)
+data class QrCheckRequest(val qrPayload:String,val quantity:Int=1,val memberIndex:Int?=null)
 data class SeatAssignmentRequest(val table:String?=null,val seat:String?=null,val sector:String?=null)
 data class GuestEventResponse(val id:UUID,val name:String,val type:String,val description:String?,val startsAt:Instant,val endsAt:Instant?,val timezone:String,val location:String?,val status:EventStatus)
 data class GuestModuleResponse(val code:String,val name:String,val category:String,val description:String,val order:Int,val featured:Boolean,val configuration:Map<String,Any?>)
@@ -62,7 +63,15 @@ data class LinkInvitationsRequest(val tokens:List<String> = emptyList())
         if(event.status==EventStatus.DRAFT)throw ForbiddenException("El evento todavía no está publicado")
         val modules=eventModules.findAllByEventIdOrderByDisplayOrder(invitation.eventId).filter{it.enabled&&map(it.configuration)["guestVisible"]!=false}.mapNotNull{em->catalog.findById(em.moduleCode).orElse(null)?.takeIf{it.globallyEnabled}?.let{c->GuestModuleResponse(c.code,c.name,c.category,c.description,em.displayOrder,em.featured,map(em.configuration))}}
         val enabled=modules.map{it.code}.toSet();val agendaItems=if("CAL" in enabled)agenda.findAllByEventIdOrderByStartsAt(invitation.eventId).filter{it.status!="CANCELLED"}else emptyList();val current=Instant.now()
-        val visibleNotifications=if("NOT" in enabled)notifications.findAllByEventIdAndActiveTrueOrderByCreatedAtDesc(invitation.eventId).filter{n->n.recipientUserId==invitation.linkedUserId||(n.recipientUserId==null&&when(n.audienceType){"ALL"->true;"TABLE"->invitation.tableLabel==n.audienceValue;"SECTOR"->invitation.sectorLabel==n.audienceValue;else->false})}else emptyList()
+        val visibleNotifications=if("NOT" in enabled)notifications.findAllByEventIdAndActiveTrueOrderByCreatedAtDesc(invitation.eventId).filter{n->
+            (n.recipientUserId!=null&&n.recipientUserId==invitation.linkedUserId)||
+                (n.recipientUserId==null&&when(n.audienceType){
+                    "ALL"->true
+                    "TABLE"->invitation.tableLabel!=null&&invitation.tableLabel==n.audienceValue
+                    "SECTOR"->invitation.sectorLabel!=null&&invitation.sectorLabel==n.audienceValue
+                    else->false
+                })
+        }else emptyList()
         val mapPoints=if("MAP" in enabled)listOf("ZONE","POINT").flatMap{type->records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(invitation.eventId,"MAP",type)}.filter{it.status=="ACTIVE"&&map(it.payload)["visible"]!=false}.map{GuestMapPointResponse(requireNotNull(it.id),it.recordType,it.title,map(it.payload))}else emptyList()
         return GuestExperienceResponse(response(invitation),GuestEventResponse(requireNotNull(event.id),event.name,event.type,event.description,event.startsAt,event.endsAt,event.timezone,event.location,event.status),modules,agendaItems,agendaItems.firstOrNull{!current.isBefore(it.startsAt)&&current.isBefore(it.endsAt)},agendaItems.firstOrNull{it.startsAt.isAfter(current)},visibleNotifications,mapPoints)
     }
@@ -94,14 +103,45 @@ data class LinkInvitationsRequest(val tokens:List<String> = emptyList())
         invitations.forEach{it.linkedUserId=userId}
         return invitations.map{response(it)}
     }
-    @Transactional fun check(userId:UUID,eventId:UUID,id:UUID,r:CheckRequest,incoming:Boolean):InvitationResponse{eventService.authorized(userId,eventId,"CHECK_IN");eventService.requireModule(eventId,"GST");val i=find(eventId,id);if(i.revokedAt!=null||i.tokenExpiresAt?.isBefore(Instant.now())==true)throw ConflictException("La invitación no está vigente");if(i.status!=InvitationStatus.ACCEPTED)throw ConflictException("La invitación no está confirmada");if(r.quantity<1)throw BadRequestException("Cantidad inválida");val current=count(i);val event=events.findById(eventId).orElseThrow{NotFoundException("Evento no encontrado")};if(event.status !in setOf(EventStatus.PUBLISHED,EventStatus.RUNNING))throw ConflictException("El evento no admite ingresos en su estado actual");if(incoming){if(current+r.quantity>i.allowedCapacity)throw ConflictException("El ingreso supera el cupo autorizado");if(current==0&&logs.findAllByInvitationIdOrderByCreatedAt(id).any{it.action=="CHECK_OUT"}&&!event.reentryAllowed)throw ConflictException("El reingreso no está permitido");logs.save(GuestAccessLog(invitationId=id,action="CHECK_IN",quantity=r.quantity,performedBy=userId))}else{if(r.quantity>current)throw ConflictException("No puede salir más personas de las ingresadas");logs.save(GuestAccessLog(invitationId=id,action="CHECK_OUT",quantity=r.quantity,performedBy=userId))};return response(i)}
+    @Transactional fun check(userId:UUID,eventId:UUID,id:UUID,r:CheckRequest,incoming:Boolean):InvitationResponse{
+        eventService.authorized(userId,eventId,"CHECK_IN")
+        eventService.requireModule(eventId,"GST")
+        val invitation=find(eventId,id)
+        if(invitation.revokedAt!=null||invitation.tokenExpiresAt?.isBefore(Instant.now())==true)throw ConflictException("La invitación no está vigente")
+        if(invitation.status!=InvitationStatus.ACCEPTED)throw ConflictException("La invitación no está confirmada")
+        if(r.quantity<1)throw BadRequestException("Cantidad inválida")
+        val history=logs.findAllByInvitationIdOrderByCreatedAt(id)
+        val current=history.sumOf{if(it.action=="CHECK_IN")it.quantity else -it.quantity}.coerceAtLeast(0)
+        val event=events.findById(eventId).orElseThrow{NotFoundException("Evento no encontrado")}
+        if(event.status !in setOf(EventStatus.PUBLISHED,EventStatus.RUNNING))throw ConflictException("El evento no admite ingresos en su estado actual")
+        if(r.memberIndex!=null){
+            val names=listOf(invitation.guestName)+mapper.readStringList(invitation.companions)
+            if(r.quantity!=1||r.memberIndex !in names.indices)throw BadRequestException("Integrante inválido")
+            if(history.any{it.memberIndex==null})throw ConflictException("El grupo ya usa registro agregado")
+            val memberHistory=history.filter{it.memberIndex==r.memberIndex}
+            val inside=memberHistory.sumOf{if(it.action=="CHECK_IN")1 else -1}>0
+            if(incoming){
+                if(inside||current>=invitation.allowedCapacity)throw ConflictException("El integrante ya ingresó o el cupo se agotó")
+                if(memberHistory.any{it.action=="CHECK_OUT"}&&!event.reentryAllowed)throw ConflictException("El reingreso no está permitido")
+            }else if(!inside)throw ConflictException("El integrante no está dentro")
+            logs.save(GuestAccessLog(invitationId=id,action=if(incoming)"CHECK_IN" else "CHECK_OUT",memberIndex=r.memberIndex,performedBy=userId))
+        }else{
+            if(history.any{it.memberIndex!=null})throw ConflictException("El grupo ya usa registro individual")
+            if(incoming){
+                if(current+r.quantity>invitation.allowedCapacity)throw ConflictException("El ingreso supera el cupo autorizado")
+                if(current==0&&history.any{it.action=="CHECK_OUT"}&&!event.reentryAllowed)throw ConflictException("El reingreso no está permitido")
+            }else if(r.quantity>current)throw ConflictException("No puede salir más personas de las ingresadas")
+            logs.save(GuestAccessLog(invitationId=id,action=if(incoming)"CHECK_IN" else "CHECK_OUT",quantity=r.quantity,performedBy=userId))
+        }
+        return response(invitation)
+    }
     @Transactional fun checkQr(userId:UUID,eventId:UUID,r:QrCheckRequest,incoming:Boolean):InvitationResponse {
         if(!r.qrPayload.startsWith("eventflow:invite:"))throw BadRequestException("QR inválido")
         val credential=r.qrPayload.removePrefix("eventflow:invite:")
         if(!credential.matches(Regex("[0-9a-f]{64}")))throw BadRequestException("QR inválido")
         val invitation=repo.findByTokenHash(credential)?:throw NotFoundException("Invitación no encontrada")
         if(invitation.eventId!=eventId)throw NotFoundException("Invitación no encontrada")
-        return check(userId,eventId,requireNotNull(invitation.id),CheckRequest(r.quantity),incoming)
+        return check(userId,eventId,requireNotNull(invitation.id),CheckRequest(r.quantity,r.memberIndex),incoming)
     }
     private fun valid(raw:String):Invitation{val i=repo.findByTokenHash(auth.hash(raw))?:throw UnauthorizedException("Invitación inválida");if(i.revokedAt!=null||i.tokenExpiresAt?.isBefore(Instant.now())==true)throw UnauthorizedException("Invitación expirada o revocada");return i}
     private fun linked(userId:UUID,id:UUID):Invitation{val i=repo.findById(id).orElseThrow{NotFoundException("Invitación no encontrada")};if(i.linkedUserId!=userId)throw ForbiddenException("La invitación no pertenece a tu cuenta");if(i.revokedAt!=null||i.tokenExpiresAt?.isBefore(Instant.now())==true)throw UnauthorizedException("Invitación expirada o revocada");return i}
@@ -133,5 +173,16 @@ data class LinkInvitationsRequest(val tokens:List<String> = emptyList())
         if(closesAt!=null&&!Instant.now().isBefore(closesAt))throw ConflictException("El RSVP está cerrado")
     }
     @Suppress("UNCHECKED_CAST") private fun map(json:String)=mapper.readMap(json)
-    @Suppress("UNCHECKED_CAST") private fun response(i:Invitation,raw:String?=null)=InvitationResponse(requireNotNull(i.id),i.eventId,i.guestName,i.guestEmail,i.status,i.allowedCapacity,mapper.readStringList(i.companions),i.tableLabel,i.seatLabel,i.sectorLabel,raw,count(i),"eventflow:invite:${i.tokenHash}")
+    @Suppress("UNCHECKED_CAST") private fun response(i:Invitation,raw:String?=null):InvitationResponse{
+        val companions=mapper.readStringList(i.companions)
+        val history=logs.findAllByInvitationIdOrderByCreatedAt(requireNotNull(i.id))
+        val individual=history.any{it.memberIndex!=null}
+        val members=(listOf(i.guestName)+companions).mapIndexed{index,name->
+            val inside=if(individual)history.filter{it.memberIndex==index}.sumOf{if(it.action=="CHECK_IN")1 else -1}>0 else null
+            GroupMemberStatus(index,name,inside)
+        }
+        val current=history.sumOf{if(it.action=="CHECK_IN")it.quantity else -it.quantity}.coerceAtLeast(0)
+        return InvitationResponse(requireNotNull(i.id),i.eventId,i.guestName,i.guestEmail,i.status,i.allowedCapacity,companions,
+            i.tableLabel,i.seatLabel,i.sectorLabel,raw,current,"eventflow:invite:${i.tokenHash}",members)
+    }
 }

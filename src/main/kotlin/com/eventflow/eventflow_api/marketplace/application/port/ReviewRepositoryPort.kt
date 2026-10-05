@@ -7,4 +7,5 @@ import java.util.UUID
 
 interface ReviewRepositoryPort : CrudPort<Review, UUID> {
     fun existsByReservationIdAndAuthorUserId(reservationId: UUID, authorUserId: UUID): Boolean
+    fun averageRatingForOffering(offeringId: UUID): Double?
 }

@@ -10,6 +10,6 @@ import java.util.UUID
 
 interface MarketplaceOfferingRepositoryPort : CrudPort<MarketplaceOffering, UUID> {
     fun findAllByTypeAndStatus(type: OfferingType, status: OfferingStatus): List<MarketplaceOffering>
-    fun search(type: OfferingType, category: String?, location: String?, minCapacity: Int?, maxPrice: java.math.BigDecimal?, limit: Int): List<MarketplaceOffering>
+    fun search(type: OfferingType, category: String?, location: String?, minCapacity: Int?, maxPrice: BigDecimal?, minRating: BigDecimal?, page: Int, pageSize: Int): List<MarketplaceOffering>
     fun findAllByOwnerUserId(ownerUserId: UUID): List<MarketplaceOffering>
 }

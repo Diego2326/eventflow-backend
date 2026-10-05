@@ -18,10 +18,12 @@ import com.eventflow.eventflow_api.shared.application.error.BadRequestException
 import com.eventflow.eventflow_api.shared.application.error.ConflictException
 import com.eventflow.eventflow_api.shared.application.error.ForbiddenException
 import com.eventflow.eventflow_api.shared.application.error.NotFoundException
+import com.eventflow.eventflow_api.shared.application.port.JsonCodec
 
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.Instant
 import java.util.UUID
 
@@ -34,11 +36,32 @@ data class ReviewRequest(val rating:Int,val comment:String?=null)
 data class SimulatedReceipt(val reference:String,val reservationId:UUID,val eventId:UUID,val offeringId:UUID,
     val amount:BigDecimal,val status:String,val paidAt:Instant,val notice:String="COMPROBANTE DE SIMULACIÓN ACADÉMICA: no acredita un pago real")
 
-@Service class MarketplaceService(private val offerings:MarketplaceOfferingRepositoryPort,private val availability:OfferingAvailabilityRepositoryPort,private val reservations:ReservationRepositoryPort,private val payments:SimulatedPaymentRepositoryPort,private val reviews:ReviewRepositoryPort,private val events:EventService){
+@Service class MarketplaceService(private val offerings:MarketplaceOfferingRepositoryPort,private val availability:OfferingAvailabilityRepositoryPort,private val reservations:ReservationRepositoryPort,private val payments:SimulatedPaymentRepositoryPort,private val reviews:ReviewRepositoryPort,private val events:EventService,private val json:JsonCodec){
     @Transactional fun create(userId:UUID,r:OfferingRequest):MarketplaceOffering{validateOffering(r);return offerings.save(MarketplaceOffering(ownerUserId=userId,type=r.type,name=r.name.trim(),category=r.category,description=r.description,location=r.location,capacity=r.capacity,price=r.price,attributes=r.attributes,imageUrls=r.imageUrls))}
     @Transactional fun update(userId:UUID,id:UUID,r:OfferingRequest):MarketplaceOffering{validateOffering(r);val o=ownOffering(userId,id);o.type=r.type;o.name=r.name.trim();o.category=r.category;o.description=r.description;o.location=r.location;o.capacity=r.capacity;o.price=r.price;o.attributes=r.attributes;o.imageUrls=r.imageUrls;return o}
     @Transactional fun status(userId:UUID,id:UUID,status:OfferingStatus):MarketplaceOffering{val o=ownOffering(userId,id);o.status=status;return o}
-    @Transactional(readOnly=true) fun search(type:OfferingType,category:String?,location:String?,minCapacity:Int?,maxPrice:BigDecimal?,limit:Int=50): List<MarketplaceOffering> {if(limit !in 1..100||minCapacity!=null&&minCapacity<1||maxPrice!=null&&maxPrice<BigDecimal.ZERO)throw BadRequestException("Filtros de búsqueda inválidos");return offerings.search(type,category?.trim()?.ifBlank{null},location?.trim()?.ifBlank{null},minCapacity,maxPrice,limit)}
+    @Transactional(readOnly=true) fun search(type:OfferingType,category:String?,location:String?,minCapacity:Int?,maxPrice:BigDecimal?,limit:Int=50,
+        minRating:BigDecimal?=null,feature:String?=null,startsAt:Instant?=null,endsAt:Instant?=null): List<MarketplaceOffering> {
+        if(limit !in 1..100||minCapacity!=null&&minCapacity<1||maxPrice!=null&&maxPrice<BigDecimal.ZERO||
+            minRating!=null&&(minRating<BigDecimal.ZERO||minRating>BigDecimal(5))||
+            (startsAt==null)!=(endsAt==null)||startsAt!=null&&!endsAt!!.isAfter(startsAt)||feature!=null&&feature.length>100)
+            throw BadRequestException("Filtros de búsqueda inválidos")
+        val found=mutableListOf<MarketplaceOffering>()
+        var page=0
+        val pageSize=100
+        while(found.size<limit){
+            val candidates=offerings.search(type,category?.trim()?.ifBlank{null},location?.trim()?.ifBlank{null},minCapacity,maxPrice,minRating,page++,pageSize)
+            if(candidates.isEmpty())break
+            candidates.forEach{offering->
+                if(found.size>=limit)return@forEach
+                if(feature!=null&&!hasFeature(offering,feature))return@forEach
+                if(startsAt!=null&&endsAt!=null&&try{checkAvailability(requireNotNull(offering.id),startsAt,endsAt);false}catch(_:ConflictException){true})return@forEach
+                found.add(offering)
+            }
+            if(candidates.size<pageSize)break
+        }
+        return found
+    }
     @Transactional fun availability(userId:UUID,id:UUID,r:AvailabilityRequest):OfferingAvailability{ownOffering(userId,id);if(!r.endsAt.isAfter(r.startsAt))throw BadRequestException("Período inválido");return availability.save(OfferingAvailability(offeringId=id,startsAt=r.startsAt,endsAt=r.endsAt,available=r.available))}
     @Transactional(readOnly=true) fun availability(id:UUID)=availability.findAllByOfferingId(id)
     @Transactional fun reserve(userId:UUID,r:ReservationRequest):Reservation{events.owned(userId,r.eventId);if(!r.endsAt.isAfter(r.startsAt))throw BadRequestException("Período inválido");val o=offerings.findById(r.offeringId).orElseThrow{NotFoundException("Publicación no encontrada")};if(o.status!=OfferingStatus.ACTIVE)throw ConflictException("La publicación no está activa");if(o.ownerUserId==userId)throw ConflictException("No puedes reservar tu propia publicación");checkAvailability(r.offeringId,r.startsAt,r.endsAt);return reservations.save(Reservation(eventId=r.eventId,offeringId=r.offeringId,requesterUserId=userId,startsAt=r.startsAt,endsAt=r.endsAt,note=r.note))}
@@ -56,10 +79,17 @@ data class SimulatedReceipt(val reference:String,val reservationId:UUID,val even
         return SimulatedReceipt(payment.reference,reservationId,reservation.eventId,reservation.offeringId,payment.amount,payment.status,payment.paidAt)
     }
     @Transactional fun complete(userId:UUID,id:UUID):Reservation{val res=findReservation(id);ownOffering(userId,res.offeringId);if(res.status!=ReservationStatus.ACCEPTED)throw ConflictException("Solo una reservación aceptada puede concluir");res.status=ReservationStatus.COMPLETED;return res}
-    @Transactional fun review(userId:UUID,id:UUID,r:ReviewRequest):Review{val res=findReservation(id);if(res.requesterUserId!=userId||res.status!=ReservationStatus.COMPLETED)throw ForbiddenException("La contratación no es elegible");if(r.rating !in 1..5)throw BadRequestException("Calificación inválida");if(reviews.existsByReservationIdAndAuthorUserId(id,userId))throw ConflictException("Ya calificaste esta contratación");return reviews.save(Review(reservationId=id,authorUserId=userId,rating=r.rating,comment=r.comment))}
+    @Transactional fun review(userId:UUID,id:UUID,r:ReviewRequest):Review{val res=findReservation(id);if(res.requesterUserId!=userId||res.status!=ReservationStatus.COMPLETED)throw ForbiddenException("La contratación no es elegible");if(r.rating !in 1..5)throw BadRequestException("Calificación inválida");if(reviews.existsByReservationIdAndAuthorUserId(id,userId))throw ConflictException("Ya calificaste esta contratación");val saved=reviews.save(Review(reservationId=id,authorUserId=userId,rating=r.rating,comment=r.comment));offerings.findById(res.offeringId).ifPresent{it.rating=BigDecimal.valueOf(reviews.averageRatingForOffering(res.offeringId)?:r.rating.toDouble()).setScale(2,RoundingMode.HALF_UP)};return saved}
     private fun ownOffering(userId:UUID,id:UUID)=offerings.findById(id).orElseThrow{NotFoundException("Publicación no encontrada")}.also{if(it.ownerUserId!=userId)throw ForbiddenException("No eres propietario")}
     private fun findReservation(id:UUID)=reservations.findById(id).orElseThrow{NotFoundException("Reservación no encontrada")}
-    private fun validateOffering(r:OfferingRequest){if(r.name.isBlank()||r.price<BigDecimal.ZERO||r.capacity!=null&&r.capacity<1)throw BadRequestException("Datos de publicación inválidos")}
+    private fun validateOffering(r:OfferingRequest){if(r.name.isBlank()||r.price<BigDecimal.ZERO||r.capacity!=null&&r.capacity<1)throw BadRequestException("Datos de publicación inválidos");runCatching{json.readMap(r.attributes)}.getOrElse{throw BadRequestException("Características inválidas")}}
+    private fun hasFeature(offering:MarketplaceOffering,feature:String):Boolean{
+        val data=runCatching{json.readMap(offering.attributes)}.getOrNull()?:return false
+        val needle=feature.trim().lowercase()
+        if(needle.isEmpty())return true
+        return data.entries.any{it.key.lowercase()==needle&&it.value==true}||
+            (data["features"] as? List<*>)?.any{it?.toString()?.lowercase()==needle}==true
+    }
     private fun checkAvailability(offeringId:UUID,startsAt:Instant,endsAt:Instant){
         if(reservations.hasConflict(offeringId,startsAt,endsAt))throw ConflictException("El período ya está reservado")
         val ranges=availability.findAllByOfferingId(offeringId)

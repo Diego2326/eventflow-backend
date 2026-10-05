@@ -10,4 +10,6 @@ interface ModuleActionRepositoryPort : CrudPort<ModuleAction, UUID> {
     fun findAllByModuleRecordIdAndActorUserIdOrderByCreatedAt(moduleRecordId: UUID, actorUserId: UUID): List<ModuleAction>
     fun existsByModuleRecordIdAndActorUserIdAndActionType(moduleRecordId: UUID, actorUserId: UUID, actionType: String): Boolean
     fun findByModuleRecordIdAndActorUserIdAndActionType(moduleRecordId: UUID, actorUserId: UUID, actionType: String): ModuleAction?
+    fun findAllByActorUserIdAndActionTypeInOrderByCreatedAt(actorUserId: UUID, actionTypes: Collection<String>): List<ModuleAction>
+    fun findAllByModuleRecordIdInAndActionType(moduleRecordIds: Collection<UUID>, actionType: String): List<ModuleAction>
 }

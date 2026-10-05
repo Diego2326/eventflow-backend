@@ -10,6 +10,7 @@ class GuestAccessLog(
     @Column(name = "invitation_id", nullable = false) var invitationId: UUID,
     @Column(nullable = false) var action: String,
     @Column(nullable = false) var quantity: Int = 1,
+    @Column(name="member_index") var memberIndex:Int?=null,
     @Column(name = "performed_by") var performedBy: UUID? = null,
     @Column(name = "created_at", nullable = false) var createdAt: Instant = Instant.now()
 )

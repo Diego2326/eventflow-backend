@@ -15,6 +15,7 @@ class FileAsset(
     @Column(name = "content_type", nullable = false) var contentType: String,
     @Column(name = "size_bytes", nullable = false) var sizeBytes: Long,
     @Column(name = "recipient_user_id") var recipientUserId: UUID? = null,
+    @Column(nullable=false) var official:Boolean = false,
     @Enumerated(EnumType.STRING) @Column(name = "moderation_status", nullable = false) var moderationStatus: FileModerationStatus = FileModerationStatus.ACTIVE,
     @Column(nullable = false) var active: Boolean = true,
     @Column(name = "created_at", nullable = false) var createdAt: Instant = Instant.now()
