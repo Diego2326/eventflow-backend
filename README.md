@@ -4,11 +4,13 @@ Backend modular de EventFlow basado en Spring Boot 4, Kotlin, PostgreSQL, Flyway
 
 ## Arquitectura
 
-La API se organiza en tres capas:
+La API se organiza primero por módulo (`auth`, `event`, `invitation`, `marketplace`, `agenda`, `assistance`, `notification`, `messaging`, `module`, `storage`, `admin` y `user`). Cada módulo contiene las capas que necesita:
 
 - `domain`: estados, reglas del ciclo de vida y modelos del negocio.
 - `application`: servicios y casos de uso por función, contratos de entrada y puertos para persistencia y servicios externos.
 - `infrastructure`: controladores HTTP, repositorios Spring Data, adaptadores de correo, Google, JWT, contraseñas, JSON y almacenamiento, además de seguridad y configuración.
+
+Por ejemplo, `event/domain`, `event/application` y `event/infrastructure` reúnen todo lo relativo a eventos. `shared` contiene únicamente contratos y adaptadores transversales. Las migraciones de Flyway permanecen en `src/main/resources/db/migration` porque forman una secuencia única de base de datos.
 
 Los controladores dependen de la aplicación. Los servicios de aplicación dependen de puertos y no importan infraestructura, HTTP, Spring Data ni Jackson. Los repositorios Spring Data implementan los puertos de persistencia. Las reglas de creación y transición de eventos viven en casos de uso independientes de Spring y JPA. `ArchitectureBoundaryTest` comprueba estas fronteras.
 

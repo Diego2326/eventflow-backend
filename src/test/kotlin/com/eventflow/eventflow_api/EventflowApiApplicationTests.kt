@@ -1,20 +1,31 @@
 package com.eventflow.eventflow_api
 
-import com.eventflow.eventflow_api.auth.dto.LoginRequest
-import com.eventflow.eventflow_api.auth.dto.RegisterRequest
-import com.eventflow.eventflow_api.application.auth.AuthService
-import com.eventflow.eventflow_api.application.event.CreateEventRequest
-import com.eventflow.eventflow_api.application.event.EventService
-import com.eventflow.eventflow_api.application.event.ConfigureModuleRequest
-import com.eventflow.eventflow_api.domain.*
-import com.eventflow.eventflow_api.infrastructure.persistence.*
-import com.eventflow.eventflow_api.application.invitation.CreateInvitationRequest
-import com.eventflow.eventflow_api.application.invitation.GuestAssistanceRequest
-import com.eventflow.eventflow_api.application.invitation.InvitationService
-import com.eventflow.eventflow_api.application.invitation.RsvpRequest
-import com.eventflow.eventflow_api.application.modules.ModuleDataService
-import com.eventflow.eventflow_api.application.operations.OperationsService
-import com.eventflow.eventflow_api.application.operations.AgendaReminderService
+import com.eventflow.eventflow_api.agenda.application.AgendaReminderService
+import com.eventflow.eventflow_api.agenda.domain.AgendaItem
+import com.eventflow.eventflow_api.agenda.infrastructure.persistence.AgendaItemRepository
+import com.eventflow.eventflow_api.assistance.domain.AssistanceStatus
+import com.eventflow.eventflow_api.auth.application.AuthService
+import com.eventflow.eventflow_api.auth.application.dto.LoginRequest
+import com.eventflow.eventflow_api.auth.application.dto.RegisterRequest
+import com.eventflow.eventflow_api.event.application.ConfigureModuleRequest
+import com.eventflow.eventflow_api.event.application.CreateEventRequest
+import com.eventflow.eventflow_api.event.application.EventService
+import com.eventflow.eventflow_api.event.domain.EventStatus
+import com.eventflow.eventflow_api.invitation.application.CheckRequest
+import com.eventflow.eventflow_api.invitation.application.CreateInvitationRequest
+import com.eventflow.eventflow_api.invitation.application.GuestAssistanceRequest
+import com.eventflow.eventflow_api.invitation.application.InvitationService
+import com.eventflow.eventflow_api.invitation.application.RsvpRequest
+import com.eventflow.eventflow_api.invitation.domain.InvitationStatus
+import com.eventflow.eventflow_api.module.application.ModuleDataService
+import com.eventflow.eventflow_api.module.domain.ModuleCatalog
+import com.eventflow.eventflow_api.module.domain.ModuleRecord
+import com.eventflow.eventflow_api.module.infrastructure.persistence.ModuleCatalogRepository
+import com.eventflow.eventflow_api.module.infrastructure.persistence.ModuleRecordRepository
+import com.eventflow.eventflow_api.notification.domain.NotificationEntity
+import com.eventflow.eventflow_api.notification.infrastructure.persistence.NotificationRepository
+import com.eventflow.eventflow_api.agenda.application.AgendaService
+
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -32,7 +43,7 @@ class EventflowApiApplicationTests {
     @Autowired lateinit var notifications: NotificationRepository
     @Autowired lateinit var mapRecords: ModuleRecordRepository
     @Autowired lateinit var moduleData: ModuleDataService
-    @Autowired lateinit var operations: OperationsService
+    @Autowired lateinit var operations: AgendaService
     @Autowired lateinit var reminders: AgendaReminderService
 
     @Test fun contextLoads() = Unit
@@ -87,7 +98,7 @@ class EventflowApiApplicationTests {
         val beforeCheckIn = eventService.dashboard(userId, event.id)
         assertEquals(1, beforeCheckIn.acceptedGuests)
         assertEquals(2, beforeCheckIn.remainingCapacity)
-        invitationService.check(userId, event.id, created.id, com.eventflow.eventflow_api.application.invitation.CheckRequest(1), true)
+        invitationService.check(userId, event.id, created.id, com.eventflow.eventflow_api.invitation.application.CheckRequest(1), true)
         assertEquals(1, eventService.dashboard(userId, event.id).remainingCapacity)
         assertEquals(AssistanceStatus.RECEIVED, invitationService.assistance(token, GuestAssistanceRequest("UBICACION", "No encuentro mi mesa", "Entrada")).status)
 
