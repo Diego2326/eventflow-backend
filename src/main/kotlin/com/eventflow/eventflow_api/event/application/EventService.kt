@@ -23,6 +23,8 @@ import com.eventflow.eventflow_api.shared.application.error.ConflictException
 import com.eventflow.eventflow_api.shared.application.error.ForbiddenException
 import com.eventflow.eventflow_api.shared.application.error.NotFoundException
 import com.eventflow.eventflow_api.shared.application.port.JsonCodec
+import com.eventflow.eventflow_api.ticketing.application.port.EventTicketPort
+import com.eventflow.eventflow_api.ticketing.application.port.TicketOrderPort
 
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -44,7 +46,8 @@ data class ModuleResponse(val code: String, val name: String, val category: Stri
     val order: Int = 0, val featured: Boolean = false, val configuration: Map<String, Any?> = emptyMap())
 data class DashboardResponse(val event: EventResponse, val activeModules: Int, val invitations: Int, val acceptedGuests: Int,
     val checkedIn: Int, val reservations: Int, val pendingAssistance: Int,
-    val pendingGuests: Int, val declinedGuests: Int, val checkedOut: Int, val remainingCapacity: Int)
+    val pendingGuests: Int, val declinedGuests: Int, val checkedOut: Int, val remainingCapacity: Int,
+    val ticketOrders: Int, val ticketPasses: Int, val ticketCheckedIn: Int, val ticketSimulatedGross: BigDecimal)
 data class CollaboratorRequest(val userId:UUID,val permissions:Set<String>)
 
 @Service
@@ -52,7 +55,7 @@ class EventService(
     private val events: EventRepositoryPort, private val collaborators: EventCollaboratorRepositoryPort,
     private val catalog: ModuleCatalogRepositoryPort, private val dependencies: ModuleDependencyRepositoryPort,
     private val eventModules: EventModuleRepositoryPort, private val invitations: InvitationRepositoryPort,
-    private val accessLogs: GuestAccessLogRepositoryPort, private val reservations: ReservationRepositoryPort,
+    private val accessLogs: GuestAccessLogRepositoryPort, private val tickets: EventTicketPort, private val ticketOrders: TicketOrderPort, private val reservations: ReservationRepositoryPort,
     private val assistance: AssistanceRequestRepositoryPort, private val mapper: JsonCodec,
     private val transitionEvent: TransitionEvent, private val createEvent: CreateEvent
 ) {
@@ -71,7 +74,11 @@ class EventService(
         val direct = events.findAccessible(userId)
         val guestEventIds = invitations.findAllByLinkedUserId(userId).filter(::validGuestAccess).map { it.eventId }.toSet()
         val guests = if (guestEventIds.isEmpty()) emptyList() else events.findAllById(guestEventIds)
-        return (direct + guests).distinctBy { it.id }.sortedBy { it.startsAt }.map { it.toResponse() }
+        val ticketEventIds = ticketOrders.findAllByBuyerUserIdOrderByCreatedAtDesc(userId).filter { order ->
+            tickets.findAllByOrderId(requireNotNull(order.id)).any { it.status == "ACTIVE" }
+        }.map { it.eventId }.toSet()
+        val ticketEvents = if (ticketEventIds.isEmpty()) emptyList() else events.findAllById(ticketEventIds)
+        return (direct + guests + ticketEvents).distinctBy { it.id }.sortedBy { it.startsAt }.map { it.toResponse() }
     }
     @Transactional(readOnly = true) fun get(userId: UUID, eventId: UUID): EventResponse = accessible(userId,eventId).toResponse()
     @Transactional fun update(userId: UUID, eventId: UUID, r: UpdateEventRequest): EventResponse {
@@ -119,11 +126,15 @@ class EventService(
         val logs=if(ids.isEmpty()) emptyList() else accessLogs.findAllByInvitationIdIn(ids)
         val checked=logs.groupBy{it.invitationId}.values.sumOf{history->history.sumOf{if(it.action=="CHECK_IN")it.quantity else -it.quantity}.coerceAtLeast(0)}
         val out=logs.filter{it.action=="CHECK_OUT"}.sumOf{it.quantity}
+        val eventOrders=ticketOrders.findAllByEventIdOrderByCreatedAtDesc(eventId)
+        val eventTickets=tickets.findAllByEventId(eventId)
         return DashboardResponse(e.toResponse(),eventModules.findAllByEventIdOrderByDisplayOrder(eventId).count{it.enabled},inv.size,
             inv.count{it.status==InvitationStatus.ACCEPTED},checked,reservations.findAllByEventId(eventId).size,
             assistance.findAllByEventIdOrderByPriorityDescCreatedAtAsc(eventId).count{it.status !in setOf(AssistanceStatus.ATTENDED,AssistanceStatus.CANCELLED)},
             inv.count{it.status==InvitationStatus.PENDING},inv.count{it.status==InvitationStatus.DECLINED},out,
-            (inv.filter{it.status==InvitationStatus.ACCEPTED}.sumOf{it.allowedCapacity}-checked).coerceAtLeast(0))
+            (inv.filter{it.status==InvitationStatus.ACCEPTED}.sumOf{it.allowedCapacity}-checked).coerceAtLeast(0),
+            eventOrders.size,eventTickets.count{it.status=="ACTIVE"},eventTickets.count{it.checkedIn},
+            eventOrders.fold(BigDecimal.ZERO){total,order->total+order.total})
     }
     @Transactional fun addCollaborator(userId:UUID,eventId:UUID,r:CollaboratorRequest):EventCollaborator{ownerOnly(userId,eventId);if(r.userId==userId)throw BadRequestException("El propietario ya administra el evento");if(r.permissions.isEmpty()||r.permissions.any{it.isBlank()||',' in it})throw BadRequestException("Selecciona permisos válidos");return collaborators.save(EventCollaborator(eventId,r.userId,r.permissions.map{it.trim().uppercase()}.joinToString(",")))}
     @Transactional(readOnly=true) fun listCollaborators(userId:UUID,eventId:UUID):List<EventCollaborator>{ownerOnly(userId,eventId);return collaborators.findAllByEventId(eventId)}
@@ -141,7 +152,9 @@ class EventService(
         if(categories.isEmpty())throw ForbiddenException("No tienes acceso a las solicitudes")
         return categories
     }
-    fun accessible(userId:UUID,eventId:UUID):EventEntity { val e=events.findById(eventId).orElseThrow{NotFoundException("Evento no encontrado")}; if(e.ownerUserId!=userId && !collaborators.existsByEventIdAndUserId(eventId,userId) && invitations.findAllByLinkedUserId(userId).none{it.eventId==eventId&&validGuestAccess(it)}) throw ForbiddenException("No tienes acceso a este evento"); return e }
+    fun accessible(userId:UUID,eventId:UUID):EventEntity { val e=events.findById(eventId).orElseThrow{NotFoundException("Evento no encontrado")}; if(e.ownerUserId!=userId && !collaborators.existsByEventIdAndUserId(eventId,userId) && invitations.findAllByLinkedUserId(userId).none{it.eventId==eventId&&validGuestAccess(it)} && !hasActiveTicket(userId,eventId)) throw ForbiddenException("No tienes acceso a este evento"); return e }
+    private fun hasActiveTicket(userId:UUID,eventId:UUID):Boolean = ticketOrders.findAllByBuyerUserIdOrderByCreatedAtDesc(userId)
+        .filter{it.eventId==eventId}.any{order->tickets.findAllByOrderId(requireNotNull(order.id)).any{it.status=="ACTIVE"}}
     private fun validGuestAccess(invitation:Invitation):Boolean = invitation.revokedAt==null && invitation.tokenExpiresAt?.isAfter(Instant.now())!=false
     fun requireModule(eventId: UUID, code: String) { if(!eventModules.findById(EventModuleId(eventId,code)).map{it.enabled}.orElse(false)||!catalog.findById(code).map{it.globallyEnabled}.orElse(false)) throw ConflictException("El módulo $code no está habilitado") }
     fun requireVisibleModule(userId:UUID,eventId:UUID,code:String) {

@@ -9,13 +9,14 @@ import com.eventflow.eventflow_api.invitation.application.QrCheckRequest
 import com.eventflow.eventflow_api.invitation.application.RsvpRequest
 import com.eventflow.eventflow_api.invitation.application.SeatAssignmentRequest
 import com.eventflow.eventflow_api.shared.infrastructure.web.userId
+import com.eventflow.eventflow_api.ticketing.application.TicketingService
 
 import org.springframework.http.HttpStatus
 import org.springframework.security.core.Authentication
 import org.springframework.web.bind.annotation.*
 import java.util.UUID
 
-@RestController @RequestMapping("/api") class InvitationController(private val service:InvitationService){
+@RestController @RequestMapping("/api") class InvitationController(private val service:InvitationService, private val ticketing:TicketingService){
     @PostMapping("/events/{eventId}/invitations") @ResponseStatus(HttpStatus.CREATED) fun create(a:Authentication,@PathVariable eventId:UUID,@RequestBody r:CreateInvitationRequest)=service.create(a.userId(),eventId,r)
     @GetMapping("/events/{eventId}/invitations") fun list(a:Authentication,@PathVariable eventId:UUID)=service.list(a.userId(),eventId)
     @PostMapping("/events/{eventId}/invitations/{id}/revoke") fun revoke(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID)=service.revoke(a.userId(),eventId,id)
@@ -23,8 +24,10 @@ import java.util.UUID
     @PatchMapping("/events/{eventId}/invitations/{id}/seat") fun assignSeat(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID,@RequestBody r:SeatAssignmentRequest)=service.assignSeat(a.userId(),eventId,id,r)
     @PostMapping("/events/{eventId}/invitations/{id}/check-in") fun checkin(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID,@RequestBody r:CheckRequest)=service.check(a.userId(),eventId,id,r,true)
     @PostMapping("/events/{eventId}/invitations/{id}/check-out") fun checkout(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID,@RequestBody r:CheckRequest)=service.check(a.userId(),eventId,id,r,false)
-    @PostMapping("/events/{eventId}/check-in") fun checkinQr(a:Authentication,@PathVariable eventId:UUID,@RequestBody r:QrCheckRequest)=service.checkQr(a.userId(),eventId,r,true)
-    @PostMapping("/events/{eventId}/check-out") fun checkoutQr(a:Authentication,@PathVariable eventId:UUID,@RequestBody r:QrCheckRequest)=service.checkQr(a.userId(),eventId,r,false)
+    @PostMapping("/events/{eventId}/check-in") fun checkinQr(a:Authentication,@PathVariable eventId:UUID,@RequestBody r:QrCheckRequest):Any =
+        if(r.qrPayload.startsWith("eventflow:ticket:")) ticketing.checkQr(a.userId(),eventId,r.qrPayload,true) else service.checkQr(a.userId(),eventId,r,true)
+    @PostMapping("/events/{eventId}/check-out") fun checkoutQr(a:Authentication,@PathVariable eventId:UUID,@RequestBody r:QrCheckRequest):Any =
+        if(r.qrPayload.startsWith("eventflow:ticket:")) ticketing.checkQr(a.userId(),eventId,r.qrPayload,false) else service.checkQr(a.userId(),eventId,r,false)
     @GetMapping("/invitations/access/{token}") fun access(@PathVariable token:String)=service.access(token)
     @GetMapping("/invitations/access/{token}/experience") fun experience(@PathVariable token:String)=service.experience(token)
     @PostMapping("/invitations/access/{token}/rsvp") fun rsvp(@PathVariable token:String,@RequestBody r:RsvpRequest)=service.rsvp(token,r)

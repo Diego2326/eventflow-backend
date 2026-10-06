@@ -19,6 +19,12 @@ class EventEntity(
     @Column(name = "estimated_capacity") var estimatedCapacity: Int? = null,
     var budget: BigDecimal? = null,
     @Enumerated(EnumType.STRING) @Column(nullable = false) var status: EventStatus = EventStatus.DRAFT,
+    @Enumerated(EnumType.STRING) @Column(nullable = false) var visibility: EventVisibility = EventVisibility.PRIVATE,
+    @Column(name = "allow_sales_while_running", nullable = false) var allowSalesWhileRunning: Boolean = false,
+    @Column(name = "max_tickets_per_account", nullable = false) var maxTicketsPerAccount: Int = 4,
+    @Column(name = "admission_capacity") var admissionCapacity: Int? = null,
+    @Column(name = "reserved_invitation_capacity", nullable = false) var reservedInvitationCapacity: Int = 0,
+    @Column(name = "allow_revoke_after_check_in", nullable = false) var allowRevokeAfterCheckIn: Boolean = false,
     @Column(name = "reentry_allowed", nullable = false) var reentryAllowed: Boolean = false,
     @Column(name = "created_at", nullable = false) var createdAt: Instant = Instant.now(),
     @Column(name = "updated_at", nullable = false) var updatedAt: Instant = Instant.now()

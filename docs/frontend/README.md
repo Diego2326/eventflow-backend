@@ -16,6 +16,7 @@ El contrato exacto de todos los DTO está disponible en `/swagger-ui` y `/v3/api
 | EVT / MOD / ADM | [Eventos, módulos y administración](events.md) |
 | ESP / SRV / RES / PAY / REV | [Marketplace](marketplace.md) |
 | INV / GST | [Invitaciones y acceso](invitations.md) |
+| Entradas públicas | [Catálogo, compra simulada y pases](public-events-ticketing.md) |
 | CAL / MAP | [Agenda y mapa](agenda-map.md) |
 | AST / NOT / MSG | [Operación y comunicación](operations.md) |
 | Motor de registros | [Datos modulares](module-data.md) |

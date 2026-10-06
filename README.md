@@ -4,7 +4,7 @@ Backend modular de EventFlow basado en Spring Boot 4, Kotlin, PostgreSQL, Flyway
 
 ## Arquitectura
 
-La API se organiza primero por módulo (`auth`, `event`, `invitation`, `marketplace`, `agenda`, `assistance`, `notification`, `messaging`, `module`, `storage`, `admin`, `user`, `capacity`, `interaction`, `networking`, `transport`, `resource`, `session`, `sport`, `gamification` y `exhibition`). Cada módulo contiene las capas que necesita:
+La API se organiza primero por módulo (`auth`, `event`, `invitation`, `ticketing`, `marketplace`, `agenda`, `assistance`, `notification`, `messaging`, `module`, `storage`, `admin`, `user`, `capacity`, `interaction`, `networking`, `transport`, `resource`, `session`, `sport`, `gamification` y `exhibition`). Cada módulo contiene las capas que necesita:
 
 - `domain`: estados, reglas del ciclo de vida y modelos del negocio.
 - `application`: servicios y casos de uso por función, contratos de entrada y puertos para persistencia y servicios externos.
@@ -31,6 +31,8 @@ openssl rand -base64 32
 La API queda en `http://localhost:5080/api` y Swagger en `http://localhost:5080/swagger-ui`.
 
 La guía de integración del frontend está organizada por módulo en [docs/frontend/README.md](docs/frontend/README.md).
+
+Los requisitos de eventos públicos y entradas con compra simulada están en [docs/requirements/public-events-ticketing.md](docs/requirements/public-events-ticketing.md), con la guía de API en [docs/frontend/public-events-ticketing.md](docs/frontend/public-events-ticketing.md).
 
 ## Configuración externa
 
@@ -70,6 +72,7 @@ Los tipos de evento aplican las plantillas sugeridas del DERCAS; el organizador 
 - Disponibilidad: `/api/offerings/{id}/availability`
 - Reservaciones, decisiones, cancelación, pago simulado y reseña: `/api/reservations/*`
 - Invitaciones, RSVP, regeneración, Event Pass, check-in/out: `/api/events/{id}/invitations` y `/api/invitations/access/{token}`
+- Eventos públicos, tipos de entrada, compras simuladas y pases QR: `/api/public/events`, `/api/events/{id}/ticket-*` y `/api/ticket-orders/*`
 - Asignación de mesa, asiento y sector: `PATCH /api/events/{id}/invitations/{invitationId}/seat`; si existe `GST:SEATING_AREA` con el nombre de la mesa, se respeta su capacidad.
 - Agenda, Ahora/Siguiente y favoritos: `/api/events/{id}/agenda`
 - Agenda personal: `GET /api/events/{id}/agenda/mine`

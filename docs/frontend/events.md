@@ -4,6 +4,8 @@
 
 `POST /api/events/{id}/status/{status}` aplica transiciones a `PUBLISHED`, `RUNNING`, `FINISHED` o `CANCELLED`. Consulta `GET /api/events/{id}/dashboard` para conteos de invitados, ingresos, reservaciones y asistencia. Un evento finalizado rechaza operaciones exclusivas de ejecución.
 
+El panel también devuelve `ticketOrders`, `ticketPasses`, `ticketCheckedIn` y `ticketSimulatedGross` para eventos con entradas públicas. Son conteos separados de las invitaciones; el importe es siempre simulado. El flujo completo se documenta en [entradas públicas](public-events-ticketing.md).
+
 ## Módulos
 
 `GET /api/modules/catalog` entrega el catálogo global. `GET /api/events/{id}/modules` y `/modules/navigation` entregan módulos habilitados y visibles. Configura uno con `PUT /api/events/{id}/modules/{code}`:
