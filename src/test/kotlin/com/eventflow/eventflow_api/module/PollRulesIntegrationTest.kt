@@ -71,5 +71,23 @@ class PollRulesIntegrationTest {
         assertThrows(ConflictException::class.java){modules.action(other,eventId,question.id,ModuleActionRequest("VOTE"))}
     }
 
+    @Test fun `trivia keeps answer and score private until results are published`() {
+        val owner=user();val guest=user()
+        val eventId=events.create(owner,CreateEventRequest("Trivia","CUSTOM",Instant.now().plusSeconds(3600))).id
+        catalog.save(ModuleCatalog("INT","Interactions","Guest","Trivia"))
+        events.configureModule(owner,eventId,"INT",ConfigureModuleRequest())
+        events.transition(owner,eventId,EventStatus.PUBLISHED)
+        invitations.save(Invitation(eventId=eventId,linkedUserId=guest,guestName="Guest",tokenHash=UUID.randomUUID().toString()))
+        val options=listOf(mapOf("id" to "a","label" to "A"),mapOf("id" to "b","label" to "B"))
+        val payload=mapOf<String,Any?>("options" to options,"correctOptionId" to "b","points" to 3)
+        val trivia=modules.create(owner,eventId,"INT","TRIVIA",ModuleRecordRequest(title="Question",payload=payload))
+        assertEquals(null,modules.get(guest,eventId,trivia.id).payload["correctOptionId"])
+        assertEquals(null,modules.action(guest,eventId,trivia.id,ModuleActionRequest("ANSWER",mapOf("optionId" to "b"))).payload["score"])
+        assertThrows(ForbiddenException::class.java){modules.triviaResults(guest,eventId,trivia.id)}
+        assertEquals(3,modules.triviaResults(owner,eventId,trivia.id).scores.single().score)
+        modules.update(owner,eventId,trivia.id,ModuleRecordUpdate(status="CLOSED",payload=payload+mapOf("resultsPublished" to true)))
+        assertEquals(3,modules.triviaResults(guest,eventId,trivia.id).scores.single().score)
+    }
+
     private fun user()=requireNotNull(users.save(User(name="Poll user",email="poll-${UUID.randomUUID()}@example.com",passwordHash="unused")).id)
 }

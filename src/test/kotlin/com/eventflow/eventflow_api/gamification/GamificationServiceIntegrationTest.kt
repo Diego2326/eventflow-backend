@@ -40,11 +40,13 @@ import java.util.UUID
         val milestone=modules.create(owner,eventId,"GAM","MILESTONE",ModuleRecordRequest(title="Visit stand"))
         val mission=modules.create(owner,eventId,"GAM","MISSION",ModuleRecordRequest(title="Explorer",payload=mapOf(
             "requirements" to listOf(mapOf("recordId" to milestone.id.toString(),"action" to "CHECK_IN")))))
+        assertThrows(com.eventflow.eventflow_api.shared.application.error.ConflictException::class.java){modules.archive(owner,eventId,milestone.id)}
         val badge=modules.create(owner,eventId,"GAM","BADGE",ModuleRecordRequest(title="Explorer badge",payload=mapOf("missionId" to mission.id.toString())))
         assertEquals(false,gamification.progress(guest,eventId).missions.single().finished)
         gamification.completeMilestone(owner,eventId,milestone.id,requireNotNull(invitation.id))
         assertThrows(ConflictException::class.java){gamification.completeMilestone(owner,eventId,milestone.id,requireNotNull(invitation.id))}
         assertEquals(true,gamification.progress(guest,eventId).missions.single().finished)
+        assertEquals(listOf(badge.id),gamification.progress(guest,eventId).badgeIds)
         assertEquals(listOf(badge.id),gamification.syncBadges(guest,eventId).badgeIds)
         assertEquals(listOf(badge.id),gamification.syncBadges(guest,eventId).badgeIds)
     }

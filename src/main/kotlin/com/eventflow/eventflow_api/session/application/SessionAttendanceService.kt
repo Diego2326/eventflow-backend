@@ -2,6 +2,7 @@ package com.eventflow.eventflow_api.session.application
 
 import com.eventflow.eventflow_api.event.application.EventService
 import com.eventflow.eventflow_api.event.domain.EventStatus
+import com.eventflow.eventflow_api.gamification.application.GamificationService
 import com.eventflow.eventflow_api.invitation.application.port.InvitationRepositoryPort
 import com.eventflow.eventflow_api.invitation.domain.InvitationStatus
 import com.eventflow.eventflow_api.module.application.port.ModuleActionRepositoryPort
@@ -17,7 +18,8 @@ import java.util.UUID
 data class SessionAttendanceResponse(val sessionId:UUID,val invitationId:UUID,val attendeeUserId:UUID,val checkedInAt:Instant)
 
 @Service class SessionAttendanceService(private val events:EventService,private val records:ModuleRecordRepositoryPort,
-    private val actions:ModuleActionRepositoryPort,private val invitations:InvitationRepositoryPort){
+    private val actions:ModuleActionRepositoryPort,private val invitations:InvitationRepositoryPort,
+    private val gamification:GamificationService){
     @Transactional fun checkIn(staffUserId:UUID,eventId:UUID,sessionId:UUID,invitationId:UUID):SessionAttendanceResponse{
         val event=events.authorized(staffUserId,eventId,"CHECK_IN")
         events.requireModule(eventId,"SES")
@@ -35,6 +37,7 @@ data class SessionAttendanceResponse(val sessionId:UUID,val invitationId:UUID,va
         session.currentCount++
         val saved=actions.save(ModuleAction(moduleRecordId=sessionId,actorUserId=attendee,invitationId=invitationId,
             actionType="CHECK_IN",uniqueAction=true))
+        gamification.onEvidence(attendee,eventId)
         return SessionAttendanceResponse(sessionId,invitationId,attendee,saved.createdAt)
     }
 }

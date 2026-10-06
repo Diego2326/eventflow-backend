@@ -20,6 +20,7 @@ import java.util.UUID
     @PostMapping("/records/{id}/actions") @ResponseStatus(HttpStatus.CREATED) fun action(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID,@RequestBody r:ModuleActionRequest)=s.action(a.userId(),eventId,id,r)
     @GetMapping("/records/{id}/actions") fun actions(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID)=s.actionList(a.userId(),eventId,id)
     @GetMapping("/records/{id}/poll-results") fun pollResults(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID)=s.pollResults(a.userId(),eventId,id)
+    @GetMapping("/records/{id}/trivia-results") fun triviaResults(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID)=s.triviaResults(a.userId(),eventId,id)
     @GetMapping("/map/search") fun mapSearch(a:Authentication,@PathVariable eventId:UUID,@RequestParam q:String)=s.mapSearch(a.userId(),eventId,q)
     @GetMapping("/map/my-location") fun myMapLocation(a:Authentication,@PathVariable eventId:UUID)=s.myMapLocation(a.userId(),eventId)
     @GetMapping("/queues/{id}/position") fun queuePosition(a:Authentication,@PathVariable eventId:UUID,@PathVariable id:UUID)=s.queuePosition(a.userId(),eventId,id)

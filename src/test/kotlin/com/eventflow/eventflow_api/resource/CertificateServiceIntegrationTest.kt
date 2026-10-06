@@ -11,10 +11,13 @@ import com.eventflow.eventflow_api.invitation.domain.Invitation
 import com.eventflow.eventflow_api.invitation.infrastructure.persistence.GuestAccessLogRepository
 import com.eventflow.eventflow_api.invitation.infrastructure.persistence.InvitationRepository
 import com.eventflow.eventflow_api.module.domain.ModuleCatalog
+import com.eventflow.eventflow_api.module.application.ModuleDataService
+import com.eventflow.eventflow_api.module.application.ModuleRecordUpdate
 import com.eventflow.eventflow_api.module.infrastructure.persistence.ModuleCatalogRepository
 import com.eventflow.eventflow_api.resource.application.CertificateIssueRequest
 import com.eventflow.eventflow_api.resource.application.CertificateService
 import com.eventflow.eventflow_api.shared.application.error.ConflictException
+import com.eventflow.eventflow_api.shared.application.error.BadRequestException
 import com.eventflow.eventflow_api.storage.domain.FileAsset
 import com.eventflow.eventflow_api.storage.infrastructure.persistence.FileAssetRepository
 import org.junit.jupiter.api.Assertions.*
@@ -32,6 +35,7 @@ import java.util.UUID
     @Autowired lateinit var logs:GuestAccessLogRepository
     @Autowired lateinit var files:FileAssetRepository
     @Autowired lateinit var catalog:ModuleCatalogRepository
+    @Autowired lateinit var modules:ModuleDataService
 
     @Test fun `certificate requires attendance and private recipient file`() {
         val owner=user();val guest=user()
@@ -50,6 +54,8 @@ import java.util.UUID
         val certificate=certificates.issue(owner,eventId,request)
         assertEquals(guest,certificate.recipientUserId)
         assertEquals(listOf(certificate.id),certificates.mine(guest,eventId).map{it.id})
+        assertThrows(BadRequestException::class.java){modules.update(owner,eventId,certificate.id,
+            ModuleRecordUpdate(payload=mapOf("recipientUserId" to owner.toString(),"fileId" to file.id.toString())))}
         assertThrows(ConflictException::class.java){certificates.issue(owner,eventId,request)}
     }
     private fun user()=requireNotNull(users.save(User(name="Certificate user",email="cert-${UUID.randomUUID()}@example.com",passwordHash="unused")).id)

@@ -10,7 +10,7 @@ Todos los tipos se listan con `GET /api/events/{eventId}/module-data/INT/{type}`
 
 ## Trivia, sorteos y mensajes
 
-`INT:TRIVIA` requiere opciones como una encuesta, `correctOptionId` y `points` opcional en payload. La respuesta usa acción `ANSWER` con `payload.optionId`; la respuesta incluye el puntaje calculado. `INT:DRAW` lo configura el organizador; ejecuta `POST /api/events/{eventId}/draws/{drawId}/run`. La respuesta da `invitationId`, `userId` si está vinculado y `guestName`. Solo participan invitaciones con check-in vigente; el sorteo se ejecuta una vez y excluye ganadores previos.
+`INT:TRIVIA` requiere opciones como una encuesta, `correctOptionId` y `points` opcional en payload. La respuesta usa acción `ANSWER` con `payload.optionId`; el invitado no recibe la opción correcta ni su puntuación mientras la trivia está activa. El organizador la cierra con `PATCH .../records/{id}` (`status=CLOSED`, `payload.resultsPublished=true` junto con sus opciones) y publica resultados en `GET .../records/{id}/trivia-results`. El invitado ve únicamente su puntuación; el organizador puede ver todas. `INT:DRAW` lo configura el organizador; ejecuta `POST /api/events/{eventId}/draws/{drawId}/run`. La respuesta da `invitationId`, `userId` si está vinculado y `guestName`. Solo participan invitaciones con check-in vigente; el sorteo se ejecuta una vez y excluye ganadores previos.
 
 El invitado publica `INT:GUEST_MESSAGE` con `title`; puede quedar `PENDING` hasta moderación según `guestbookModeration`. `INT:SONG` registra una propuesta por canción; el límite por usuario sale de `maxSongRequestsPerUser` (3 por defecto) en la configuración del módulo. Vota una canción activa con acción `VOTE`.
 

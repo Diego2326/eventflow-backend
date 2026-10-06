@@ -9,6 +9,7 @@ import com.eventflow.eventflow_api.module.application.port.ModuleRecordRepositor
 import com.eventflow.eventflow_api.module.domain.ModuleAction
 import com.eventflow.eventflow_api.module.domain.ModuleRecord
 import com.eventflow.eventflow_api.shared.application.error.ConflictException
+import com.eventflow.eventflow_api.shared.application.error.ForbiddenException
 import com.eventflow.eventflow_api.shared.application.error.NotFoundException
 import com.eventflow.eventflow_api.shared.application.port.JsonCodec
 import org.springframework.stereotype.Service
@@ -17,7 +18,8 @@ import java.time.Instant
 import java.util.UUID
 
 data class MissionProgressResponse(val missionId:UUID,val title:String?,val completed:Int,val required:Int,val finished:Boolean)
-data class GamificationResponse(val missions:List<MissionProgressResponse>,val badgeIds:List<UUID>)
+data class MilestoneProgressResponse(val milestoneId:UUID,val title:String?,val completed:Boolean)
+data class GamificationResponse(val missions:List<MissionProgressResponse>,val badgeIds:List<UUID>,val milestones:List<MilestoneProgressResponse>)
 
 @Service class GamificationService(private val events:EventService,private val records:ModuleRecordRepositoryPort,
     private val actions:ModuleActionRepositoryPort,private val invitations:InvitationRepositoryPort,private val json:JsonCodec){
@@ -37,6 +39,7 @@ data class GamificationResponse(val missions:List<MissionProgressResponse>,val b
         if(actions.existsByModuleRecordIdAndActorUserIdAndActionType(milestoneId,attendee,"CHECK_IN"))
             throw ConflictException("El hito ya está completo")
         actions.save(ModuleAction(moduleRecordId=milestoneId,actorUserId=attendee,invitationId=invitationId,actionType="CHECK_IN"))
+        syncBadges(attendee,eventId)
     }
 
     @Transactional(readOnly=true) fun progress(userId:UUID,eventId:UUID):GamificationResponse{
@@ -55,7 +58,10 @@ data class GamificationResponse(val missions:List<MissionProgressResponse>,val b
         val badgeIds=records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,"GAM","BADGE")
             .filter{it.status=="ACTIVE"&&it.id in awarded}
             .map{requireNotNull(it.id)}
-        return GamificationResponse(progress,badgeIds)
+        val milestones=records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,"GAM","MILESTONE")
+            .filter{it.status=="ACTIVE"}.map{MilestoneProgressResponse(requireNotNull(it.id),it.title,
+                (requireNotNull(it.id) to "CHECK_IN") in completedActions)}
+        return GamificationResponse(progress,badgeIds,milestones)
     }
 
     @Transactional fun syncBadges(userId:UUID,eventId:UUID):GamificationResponse{
@@ -69,6 +75,13 @@ data class GamificationResponse(val missions:List<MissionProgressResponse>,val b
                     actions.save(ModuleAction(moduleRecordId=id,actorUserId=userId,actionType="AWARD"))
             }
         return progress(userId,eventId)
+    }
+
+    @Transactional fun onEvidence(userId:UUID,eventId:UUID){
+        try{events.requireVisibleModule(userId,eventId,"GAM")}
+        catch(_:ConflictException){return}
+        catch(_:ForbiddenException){return}
+        syncBadges(userId,eventId)
     }
 
     private fun requirements(mission:ModuleRecord):List<Pair<UUID,String>> = (json.readMap(mission.payload)["requirements"] as List<*>).map{

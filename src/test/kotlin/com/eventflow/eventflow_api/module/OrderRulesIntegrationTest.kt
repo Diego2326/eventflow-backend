@@ -43,7 +43,9 @@ class OrderRulesIntegrationTest {
         events.configureModule(owner,eventId,"NOT",ConfigureModuleRequest())
         events.transition(owner,eventId,EventStatus.PUBLISHED)
         invitations.save(Invitation(eventId=eventId,linkedUserId=guest,guestName="Guest",tokenHash=UUID.randomUUID().toString()))
-        val item=modules.create(owner,eventId,"ORD","MENU_ITEM",ModuleRecordRequest(title="Water",payload=mapOf("price" to 5,"available" to true),capacity=2))
+        val category=modules.create(owner,eventId,"ORD","MENU_CATEGORY",ModuleRecordRequest(title="Drinks"))
+        val item=modules.create(owner,eventId,"ORD","MENU_ITEM",ModuleRecordRequest(title="Water",payload=mapOf("price" to 5,"available" to true),capacity=2,parentRecordId=category.id))
+        assertThrows(ConflictException::class.java){modules.archive(owner,eventId,category.id)}
         val payload=mapOf("items" to listOf(mapOf("itemId" to item.id.toString(),"quantity" to 2)))
         val order=modules.create(guest,eventId,"ORD","ORDER",ModuleRecordRequest(payload=payload))
         assertEquals("PENDING",order.status)

@@ -3,6 +3,7 @@ package com.eventflow.eventflow_api.module.application
 import com.eventflow.eventflow_api.event.application.EventService
 import com.eventflow.eventflow_api.event.application.port.EventRepositoryPort
 import com.eventflow.eventflow_api.event.domain.EventStatus
+import com.eventflow.eventflow_api.gamification.application.GamificationService
 import com.eventflow.eventflow_api.invitation.application.port.InvitationRepositoryPort
 import com.eventflow.eventflow_api.module.application.port.ModuleActionRepositoryPort
 import com.eventflow.eventflow_api.module.application.port.ModuleRecordRepositoryPort
@@ -17,6 +18,8 @@ import com.eventflow.eventflow_api.shared.application.error.ConflictException
 import com.eventflow.eventflow_api.shared.application.error.ForbiddenException
 import com.eventflow.eventflow_api.shared.application.error.NotFoundException
 import com.eventflow.eventflow_api.shared.application.port.JsonCodec
+import com.eventflow.eventflow_api.storage.application.port.FileAssetRepositoryPort
+import com.eventflow.eventflow_api.storage.domain.FileModerationStatus
 
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -31,11 +34,14 @@ data class ModuleRecordResponse(val id:UUID,val eventId:UUID,val moduleCode:Stri
 data class ModuleActionResponse(val id:UUID,val recordId:UUID,val actorUserId:UUID?,val action:String,val payload:Map<String,Any?>,val createdAt:Instant,val quantity:Int)
 data class PollOptionResult(val optionId:String,val votes:Int)
 data class PollResultsResponse(val recordId:UUID,val totalVotes:Int,val options:List<PollOptionResult>)
-data class MapSearchResult(val id:UUID,val type:String,val title:String?,val payload:Map<String,Any?>)
+data class MapSearchResult(val id:UUID,val moduleCode:String,val type:String,val title:String?,val payload:Map<String,Any?>)
 data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleAhead:Int,val waiting:Int)
+data class TriviaScore(val userId:UUID?,val score:Int)
+data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:List<TriviaScore>)
 
 @Service class ModuleDataService(private val records:ModuleRecordRepositoryPort,private val actions:ModuleActionRepositoryPort,private val invitations:InvitationRepositoryPort,private val notifications:NotificationRepositoryPort,private val events:EventRepositoryPort,private val eventService:EventService,private val mapper:JsonCodec,
-    private val surveyParticipation:SurveyParticipationRepositoryPort,private val surveyAnonymity:SurveyAnonymity){
+    private val surveyParticipation:SurveyParticipationRepositoryPort,private val surveyAnonymity:SurveyAnonymity,
+    private val gamification:GamificationService,private val files:FileAssetRepositoryPort){
     private val guestCreatable=setOf("GAL:PHOTO","NET:PROFILE","LNF:LOST_ITEM","REV:SURVEY_RESPONSE","ORD:ORDER","INT:QUESTION","INT:GUEST_MESSAGE","INT:SONG")
     private val types=mapOf(
         "MAP" to setOf("ZONE","POINT"),"ORD" to setOf("MENU_CATEGORY","MENU_ITEM","ORDER"),"QUE" to setOf("QUEUE"),"BKG" to setOf("ACTIVITY"),
@@ -47,6 +53,8 @@ data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleA
     )
     @Transactional fun create(userId:UUID,eventId:UUID,moduleRaw:String,typeRaw:String,r:ModuleRecordRequest):ModuleRecordResponse{
         val module=moduleRaw.uppercase();val type=typeRaw.uppercase();if("$module:$type" in guestCreatable)eventService.accessible(userId,eventId)else eventService.owned(userId,eventId);eventService.requireModule(eventId,module);validateType(module,type);validateWindow(r.startsAt,r.endsAt);if(r.capacity!=null&&r.capacity<0)throw BadRequestException("Capacidad inválida")
+        validateInputSize(r.title,r.payload)
+        CatalogRecordRules.validate(module,type,r.title,r.payload)
         if(!isManager(userId,eventId)&&!eventService.guestModuleVisible(eventId,module))throw ForbiddenException("El módulo no está disponible para invitados")
         val event=events.findById(eventId).orElseThrow{NotFoundException("Evento no encontrado")}
         if(!isManager(userId,eventId)&&(event.status==EventStatus.DRAFT||event.status==EventStatus.CANCELLED||event.status==EventStatus.FINISHED&&module !in setOf("GAL","REV")))throw ConflictException("El evento no admite esta operación")
@@ -54,13 +62,32 @@ data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleA
             val parent=find(eventId,parentId)
             if(parent.moduleCode!=module||parent.status=="ARCHIVED")throw BadRequestException("Registro padre inválido")
         }
+        val expectedParent=when(module to type){
+            "ORD" to "MENU_ITEM"->"MENU_CATEGORY"
+            "EXH" to "STAND"->"EXHIBITOR"
+            "SES" to "SESSION"->"SPEAKER"
+            "TRN" to "DEPARTURE"->"ROUTE"
+            else->null
+        }
+        if(expectedParent!=null){
+            val parent=r.parentRecordId?.let{find(eventId,it)}?:throw BadRequestException("El registro requiere $expectedParent")
+            if(parent.moduleCode!=module||parent.recordType!=expectedParent||parent.status!="ACTIVE")
+                throw BadRequestException("Registro padre inválido")
+        }
+        if(module=="EXH"&&type=="STAND")r.payload["mapPointId"]?.let{value->
+            val id=runCatching{UUID.fromString(value.toString())}.getOrNull()?:throw BadRequestException("Punto de mapa inválido")
+            val point=try{find(eventId,id)}catch(_:NotFoundException){throw BadRequestException("Punto de mapa inválido")}
+            if(point.moduleCode!="MAP"||point.recordType!="POINT"||point.status!="ACTIVE")throw BadRequestException("Punto de mapa inválido")
+        }
+        if(module=="RSC"&&type=="RESOURCE")validateResource(eventId,r.payload)
         if(module=="GST"&&type=="SEATING_AREA"){
             if(r.title.isNullOrBlank())throw BadRequestException("La mesa requiere nombre")
             if(records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,module,type)
                     .any{it.status!="ARCHIVED"&&it.title.equals(r.title,true)})throw ConflictException("La mesa ya existe")
         }
         if(module=="ORD"&&type=="MENU_ITEM")validateMenuItem(r.payload)
-        if(module=="MAP")validateMapPoint(r.payload)
+        if(module=="ORD"&&type in setOf("MENU_CATEGORY","MENU_ITEM")&&r.title.isNullOrBlank())throw BadRequestException("El menú requiere nombre")
+        if(module=="MAP")validateMapPoint(r.title,r.payload)
         if(module=="ORD"&&type=="ORDER"&&(r.capacity!=null||r.startsAt!=null||r.endsAt!=null||r.parentRecordId!=null))throw BadRequestException("El pedido contiene campos no permitidos")
         if(module=="INT"&&type=="POLL")validatePoll(r.payload)
         if(module=="INT"&&type=="TRIVIA"){
@@ -78,6 +105,7 @@ data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleA
         if(module=="NET"&&type=="PROFILE"){
             if(r.payload["consent"]!=true)throw BadRequestException("Se requiere consentimiento")
             validateNetworkingProfile(r.payload)
+            events.findLocked(eventId)?:throw NotFoundException("Evento no encontrado")
             if(records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,"NET","PROFILE").any{it.ownerUserId==userId&&it.status!="ARCHIVED"})throw ConflictException("Ya tienes un perfil de networking")
         }
         if(module=="NET"&&type=="MEETING")throw BadRequestException("Usa el flujo de reuniones")
@@ -98,11 +126,24 @@ data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleA
         if(module=="GAM"&&type=="MISSION"){
             val requirements=r.payload["requirements"] as? List<*>?:throw BadRequestException("La misión requiere condiciones")
             if(requirements.isEmpty()||requirements.size>20)throw BadRequestException("Condiciones de misión inválidas")
+            val uniqueRequirements=mutableSetOf<Pair<UUID,String>>()
             requirements.forEach{raw->
                 val requirement=raw as? Map<*,*>?:throw BadRequestException("Condición inválida")
                 val recordId=runCatching{UUID.fromString(requirement["recordId"].toString())}.getOrNull()
                     ?:throw BadRequestException("Registro de condición inválido")
-                if(find(eventId,recordId).status!="ACTIVE"||requirement["action"]?.toString() !in setOf("CHECK_IN","VOTE","ANSWER","SAVE","RESERVE","JOIN"))
+                val source=find(eventId,recordId)
+                val action=requirement["action"]?.toString()?:throw BadRequestException("Condición inválida")
+                val supported=when(source.moduleCode to source.recordType){
+                    "GAM" to "MILESTONE"->setOf("CHECK_IN")
+                    "SES" to "SESSION"->setOf("CHECK_IN","SAVE")
+                    "INT" to "POLL","INT" to "QUESTION","INT" to "SONG"->setOf("VOTE")
+                    "INT" to "TRIVIA"->setOf("ANSWER")
+                    "EXH" to "EXHIBITOR","EXH" to "STAND","RSC" to "RESOURCE"->setOf("SAVE")
+                    "BKG" to "ACTIVITY","TRN" to "DEPARTURE"->setOf("RESERVE")
+                    "QUE" to "QUEUE"->setOf("JOIN")
+                    else->emptySet()
+                }
+                if(source.status!="ACTIVE"||action !in supported||!uniqueRequirements.add(recordId to action))
                     throw BadRequestException("Condición inválida")
             }
         }
@@ -110,7 +151,7 @@ data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleA
             val missionId=runCatching{UUID.fromString(r.payload["missionId"].toString())}.getOrNull()
                 ?:throw BadRequestException("La insignia requiere una misión")
             val mission=find(eventId,missionId)
-            if(mission.moduleCode!="GAM"||mission.recordType!="MISSION")throw BadRequestException("Misión de insignia inválida")
+            if(mission.moduleCode!="GAM"||mission.recordType!="MISSION"||mission.status!="ACTIVE")throw BadRequestException("Misión de insignia inválida")
         }
         if(module=="INT"&&type=="QUESTION_BOARD")validateQuestionBoard(r.payload)
         if(module=="INT"&&type=="QUESTION"){
@@ -143,23 +184,30 @@ data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleA
             module=="ORD"&&type=="ORDER"->"PENDING"
             module=="LNF"&&type=="LOST_ITEM"->"OPEN"
             module=="LNF"&&type=="FOUND_ITEM"->"ACTIVE"
+            module=="SPT"&&type=="MATCH"->"ACTIVE"
+            module=="REV"&&type=="SURVEY_RESPONSE"->"ACTIVE"
             module=="GAL"&&type=="PHOTO"&&!isManager(userId,eventId)->"PENDING"
             module=="INT"&&type=="GUEST_MESSAGE"&&!isManager(userId,eventId)&&eventService.modules(userId,eventId).first{it.code=="INT"}.configuration["guestbookModeration"]!=false->"PENDING"
             module=="INT"&&type=="QUESTION"&&!isManager(userId,eventId)->
                 if(map(find(eventId,requireNotNull(r.parentRecordId)).payload)["moderationRequired"]!=false)"PENDING" else "ACTIVE"
             else->r.status.uppercase()
         }
+        validateRecordStatus(module,type,initialStatus)
         val anonymousResponse=module=="REV"&&type=="SURVEY_RESPONSE"&&map(find(eventId,requireNotNull(r.parentRecordId)).payload)["anonymous"]==true
         val saved=records.save(ModuleRecord(eventId=eventId,moduleCode=module,recordType=type,ownerUserId=if(anonymousResponse)null else userId,parentRecordId=r.parentRecordId,status=initialStatus,title=r.title,payload=mapper.write(payload),capacity=r.capacity,startsAt=r.startsAt,endsAt=r.endsAt))
         if(anonymousResponse)surveyParticipation.save(SurveyParticipation(surveyAnonymity.participantHash(requireNotNull(r.parentRecordId),userId),r.parentRecordId,requireNotNull(saved.id)))
         return response(saved)
     }
-    @Transactional(readOnly=true) fun list(userId:UUID,eventId:UUID,moduleRaw:String,typeRaw:String):List<ModuleRecordResponse>{val module=moduleRaw.uppercase();val type=typeRaw.uppercase();eventService.accessible(userId,eventId);eventService.requireModule(eventId,module);validateType(module,type);val manager=isManager(userId,eventId)||(module=="ORD"&&type=="ORDER"&&isOrderStaff(userId,eventId));if(!manager&&!eventService.guestModuleVisible(eventId,module))return emptyList();return records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,module,type).filter{it.status!="ARCHIVED"&&visibleTo(it,userId,manager)}.map(::response)}
-    @Transactional(readOnly=true) fun get(userId:UUID,eventId:UUID,id:UUID):ModuleRecordResponse{eventService.accessible(userId,eventId);val record=find(eventId,id);eventService.requireModule(eventId,record.moduleCode);val manager=isManager(userId,eventId)||(record.moduleCode=="ORD"&&record.recordType=="ORDER"&&isOrderStaff(userId,eventId));if(!manager&&(!eventService.guestModuleVisible(eventId,record.moduleCode)||!visibleTo(record,userId,false)))throw NotFoundException("Registro no encontrado");return response(record)}
-    @Transactional fun update(userId:UUID,eventId:UUID,id:UUID,r:ModuleRecordUpdate):ModuleRecordResponse{eventService.accessible(userId,eventId);val x=find(eventId,id);val manager=isManager(userId,eventId);val orderStaff=x.moduleCode=="ORD"&&x.recordType=="ORDER"&&isOrderStaff(userId,eventId);if(!manager&&!orderStaff&&x.ownerUserId!=userId)throw ForbiddenException("No puedes modificar este registro");eventService.requireModule(eventId,x.moduleCode);if(!manager&&!orderStaff&&!eventService.guestModuleVisible(eventId,x.moduleCode))throw ForbiddenException("El módulo no está disponible para invitados");if(!manager&&x.moduleCode=="GAL"&&x.status=="ACTIVE"&&(r.title!=null||r.payload!=null))throw ConflictException("La foto aprobada requiere nueva moderación");if(!manager&&x.moduleCode=="REV"&&x.recordType=="SURVEY_RESPONSE")throw ForbiddenException("La respuesta enviada no se puede modificar");if(!manager&&!orderStaff&&(r.capacity!=null||r.startsAt!=null||r.endsAt!=null))throw ForbiddenException("No puedes cambiar capacidad u horario");validateWindow(r.startsAt?:x.startsAt,r.endsAt?:x.endsAt);if(x.moduleCode=="ORD"&&x.recordType=="ORDER"){
+    @Transactional(readOnly=true) fun list(userId:UUID,eventId:UUID,moduleRaw:String,typeRaw:String):List<ModuleRecordResponse>{val module=moduleRaw.uppercase();val type=typeRaw.uppercase();eventService.accessible(userId,eventId);eventService.requireModule(eventId,module);validateType(module,type);val manager=isManager(userId,eventId)||(module=="ORD"&&type=="ORDER"&&isOrderStaff(userId,eventId));if(!manager&&!eventService.guestModuleVisible(eventId,module))return emptyList();return records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,module,type).filter{it.status!="ARCHIVED"&&visibleTo(it,userId,manager)}.map{response(it,!manager)}}
+    @Transactional(readOnly=true) fun get(userId:UUID,eventId:UUID,id:UUID):ModuleRecordResponse{eventService.accessible(userId,eventId);val record=find(eventId,id);eventService.requireModule(eventId,record.moduleCode);val manager=isManager(userId,eventId)||(record.moduleCode=="ORD"&&record.recordType=="ORDER"&&isOrderStaff(userId,eventId));if(!manager&&(!eventService.guestModuleVisible(eventId,record.moduleCode)||!visibleTo(record,userId,false)))throw NotFoundException("Registro no encontrado");return response(record,!manager)}
+    @Transactional fun update(userId:UUID,eventId:UUID,id:UUID,r:ModuleRecordUpdate):ModuleRecordResponse{eventService.accessible(userId,eventId);val x=find(eventId,id);val manager=isManager(userId,eventId);val orderStaff=x.moduleCode=="ORD"&&x.recordType=="ORDER"&&isOrderStaff(userId,eventId);if(!manager&&!orderStaff&&x.ownerUserId!=userId)throw ForbiddenException("No puedes modificar este registro");eventService.requireModule(eventId,x.moduleCode);if(!manager&&!orderStaff&&!eventService.guestModuleVisible(eventId,x.moduleCode))throw ForbiddenException("El módulo no está disponible para invitados");if(!manager&&x.moduleCode=="GAL"&&x.status=="ACTIVE"&&(r.title!=null||r.payload!=null))throw ConflictException("La foto aprobada requiere nueva moderación");if(!manager&&x.moduleCode=="REV"&&x.recordType=="SURVEY_RESPONSE")throw ForbiddenException("La respuesta enviada no se puede modificar");if(!manager&&!orderStaff&&(r.capacity!=null||r.startsAt!=null||r.endsAt!=null))throw ForbiddenException("No puedes cambiar capacidad u horario");validateWindow(r.startsAt?:x.startsAt,r.endsAt?:x.endsAt)
+        r.payload?.let{validateInputSize(r.title,it)}
+        if(r.payload==null)validateInputSize(r.title,emptyMap())
         if(x.moduleCode=="NET"&&x.recordType=="MEETING")throw BadRequestException("Usa el flujo de reuniones")
         if(x.moduleCode=="RSC"&&x.recordType=="CERTIFICATE")throw BadRequestException("Retira y vuelve a publicar el certificado")
         if(x.moduleCode=="SPT"&&x.recordType=="MATCH"&&r.payload!=null)throw BadRequestException("Usa el flujo de resultados")
+        if(x.moduleCode=="SPT"&&x.recordType=="MATCH"&&r.status!=null&&r.status.uppercase()!=x.status)
+            throw BadRequestException("Usa el flujo de resultados")
         if(x.moduleCode=="GAM"&&x.recordType in setOf("MISSION","BADGE")&&r.payload!=null)
             throw BadRequestException("Las condiciones publicadas no se pueden cambiar")
         if(x.moduleCode=="REV"&&x.recordType=="SURVEY"&&r.payload!=null){
@@ -168,6 +216,9 @@ data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleA
             if((r.payload["anonymous"]==true)!=previous&&records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,"REV","SURVEY_RESPONSE").any{it.parentRecordId==id})
                 throw ConflictException("No puedes cambiar el anonimato después de recibir respuestas")
         }
+        if(x.moduleCode=="REV"&&x.recordType=="SURVEY_RESPONSE")throw ForbiddenException("La respuesta enviada no se puede modificar")
+        r.status?.let{validateRecordStatus(x.moduleCode,x.recordType,it.uppercase())}
+        if(x.moduleCode=="ORD"&&x.recordType=="ORDER"){
             if(r.payload!=null||r.title!=null||r.capacity!=null||r.startsAt!=null||r.endsAt!=null)throw ForbiddenException("El detalle del pedido no se puede modificar")
             r.status?.uppercase()?.let { target ->
                 val allowed=mapOf("PENDING" to setOf("ACCEPTED","CANCELLED"),"ACCEPTED" to setOf("PREPARING","CANCELLED"),"PREPARING" to setOf("READY","CANCELLED"),"READY" to setOf("DELIVERED"))
@@ -176,7 +227,7 @@ data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleA
                 if(target=="CANCELLED")releaseOrderItems(eventId,map(x.payload))
             }
         };if(x.moduleCode=="ORD"&&x.recordType=="MENU_ITEM"&&r.payload!=null)validateMenuItem(r.payload)
-        if(x.moduleCode=="MAP"&&r.payload!=null)validateMapPoint(r.payload)
+        if(x.moduleCode=="MAP"&&(r.payload!=null||r.title!=null))validateMapPoint(r.title?:x.title,r.payload?:map(x.payload))
         if(x.moduleCode=="INT"&&x.recordType=="QUESTION"&&!manager){
             if(x.status!="PENDING"||r.status!=null)throw ForbiddenException("La pregunta ya fue enviada a moderación")
         }
@@ -191,6 +242,16 @@ data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleA
             }
             r.status?.uppercase()?.let{if(it !in setOf("ACTIVE","CLOSED")||x.status=="CLOSED"&&it!="CLOSED")throw ConflictException("Transición de encuesta no permitida")}
         }
+        if(x.moduleCode=="INT"&&x.recordType=="TRIVIA"){
+            val answers=actions.findAllByModuleRecordIdOrderByCreatedAt(id).count{it.actionType=="ANSWER"}
+            r.payload?.let{data->
+                validatePoll(data)
+                if(data["correctOptionId"]?.toString() !in pollOptions(data))throw BadRequestException("Respuesta correcta inválida")
+                if(answers>0&&(pollOptions(data)!=pollOptions(map(x.payload))||data["correctOptionId"]!=map(x.payload)["correctOptionId"]))
+                    throw ConflictException("No puedes cambiar la trivia con respuestas registradas")
+            }
+            r.status?.uppercase()?.let{if(it !in setOf("ACTIVE","CLOSED")||x.status=="CLOSED"&&it!="CLOSED")throw ConflictException("Transición de trivia no permitida")}
+        }
         if(x.moduleCode in setOf("QUE","BKG","TRN","SES")&&r.status!=null&&r.status.uppercase() !in setOf("ACTIVE","CLOSED"))throw ConflictException("Estado no permitido")
         if(x.moduleCode=="NET"&&x.recordType=="PROFILE"&&r.payload!=null){
             if(r.payload["consent"]!=true)throw BadRequestException("Se requiere consentimiento")
@@ -198,6 +259,8 @@ data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleA
         }
         if(x.moduleCode=="BKG"&&x.recordType=="ACTIVITY"&&r.payload!=null&&r.payload["cancelBeforeMinutes"]!=null&&((r.payload["cancelBeforeMinutes"] as? Number)?.toLong()?:-1L) !in 0..10080)throw BadRequestException("Plazo de cancelación inválido")
         if(x.moduleCode=="AFO")validateCapacityRecord(x.recordType,r.payload?:map(x.payload),r.capacity?:x.capacity)
+        if(x.moduleCode=="RSC"&&x.recordType=="RESOURCE"&&r.payload!=null)validateResource(eventId,r.payload)
+        if(r.title!=null||r.payload!=null)CatalogRecordRules.validate(x.moduleCode,x.recordType,r.title?:x.title,r.payload?:map(x.payload))
         if(x.moduleCode=="LNF"){
             validateLostFound(x.recordType,r.title?:x.title,r.payload?:map(x.payload))
             r.status?.uppercase()?.let { target ->
@@ -212,16 +275,53 @@ data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleA
             if(r.capacity!=null&&r.capacity<assigned)throw ConflictException("La capacidad no puede ser menor a los invitados asignados")
             if(r.title!=null&&!r.title.equals(x.title,true)&&assigned>0)throw ConflictException("No puedes renombrar una mesa con invitados asignados")
             if(r.title!=null&&!r.title.equals(x.title,true)&&records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,"GST","SEATING_AREA").any{it.id!=id&&it.status!="ARCHIVED"&&it.title.equals(r.title,true)})throw ConflictException("La mesa ya existe")
-        };r.title?.let{x.title=it};r.payload?.let{x.payload=mapper.write(it)};r.status?.let{if(!manager&&!orderStaff&&x.recordType!="ORDER"&&it.uppercase()!=x.status)throw ForbiddenException("No puedes moderar este registro");x.status=it.uppercase()};r.capacity?.let{if(it<x.currentCount||it<0)throw ConflictException("Capacidad inválida");x.capacity=it};r.startsAt?.let{x.startsAt=it};r.endsAt?.let{x.endsAt=it};x.updatedAt=Instant.now()
+        }
+        if(r.status?.uppercase()=="CLOSED"&&x.status=="ACTIVE")ensureNoActiveDependents(eventId,x)
+        r.title?.let{x.title=it};r.payload?.let{x.payload=mapper.write(it)};r.status?.let{if(!manager&&!orderStaff&&x.recordType!="ORDER"&&it.uppercase()!=x.status)throw ForbiddenException("No puedes moderar este registro");x.status=it.uppercase()};r.capacity?.let{if(it<x.currentCount||it<0)throw ConflictException("Capacidad inválida");x.capacity=it};r.startsAt?.let{x.startsAt=it};r.endsAt?.let{x.endsAt=it};x.updatedAt=Instant.now()
         if(x.moduleCode=="ORD"&&x.recordType=="ORDER"&&r.status!=null&&x.ownerUserId!=null&&moduleEnabled(eventId,"NOT"))
             notifications.save(NotificationEntity(eventId=eventId,authorUserId=userId,recipientUserId=x.ownerUserId,title="Pedido ${orderStatusLabel(x.status)}",body="Tu pedido cambió a ${orderStatusLabel(x.status)}",audienceType="USER"))
         return response(x)}
-    @Transactional fun archive(userId:UUID,eventId:UUID,id:UUID){eventService.accessible(userId,eventId);val x=find(eventId,id);if(!isManager(userId,eventId)&&x.ownerUserId!=userId)throw ForbiddenException("No puedes retirar este registro");if(x.moduleCode=="NET"&&x.recordType=="MEETING")throw BadRequestException("Usa el flujo de reuniones");if(x.moduleCode=="REV"&&x.recordType=="SURVEY_RESPONSE"&&!isManager(userId,eventId))throw ForbiddenException("La respuesta enviada no se puede retirar");if(x.moduleCode=="GST"&&x.recordType=="SEATING_AREA"&&invitations.findAllByEventId(eventId).any{it.revokedAt==null&&it.tableLabel.equals(x.title,true)})throw ConflictException("La mesa tiene invitados asignados");if(x.moduleCode=="ORD"&&x.recordType=="ORDER"&&x.status !in setOf("CANCELLED","DELIVERED"))throw ConflictException("El pedido sigue activo");x.status="ARCHIVED";x.updatedAt=Instant.now()}
+    @Transactional fun archive(userId:UUID,eventId:UUID,id:UUID){
+        eventService.accessible(userId,eventId)
+        val x=find(eventId,id)
+        if(!isManager(userId,eventId)&&x.ownerUserId!=userId)throw ForbiddenException("No puedes retirar este registro")
+        if(x.moduleCode=="NET"&&x.recordType=="MEETING")throw BadRequestException("Usa el flujo de reuniones")
+        if(x.moduleCode=="REV"&&x.recordType=="SURVEY_RESPONSE"&&!isManager(userId,eventId))throw ForbiddenException("La respuesta enviada no se puede retirar")
+        if(x.moduleCode=="GST"&&x.recordType=="SEATING_AREA"&&invitations.findAllByEventId(eventId).any{it.revokedAt==null&&it.tableLabel.equals(x.title,true)})
+            throw ConflictException("La mesa tiene invitados asignados")
+        if(x.moduleCode=="ORD"&&x.recordType=="ORDER"&&x.status !in setOf("CANCELLED","DELIVERED"))throw ConflictException("El pedido sigue activo")
+        ensureNoActiveDependents(eventId,x)
+        x.status="ARCHIVED";x.updatedAt=Instant.now()
+    }
+    private fun ensureNoActiveDependents(eventId:UUID,x:ModuleRecord){
+        val id=requireNotNull(x.id)
+        val childType=when(x.moduleCode to x.recordType){
+            "ORD" to "MENU_CATEGORY"->"MENU_ITEM"
+            "EXH" to "EXHIBITOR"->"STAND"
+            "SES" to "SPEAKER"->"SESSION"
+            "TRN" to "ROUTE"->"DEPARTURE"
+            else->null
+        }
+        if(childType!=null&&records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,x.moduleCode,childType)
+                .any{it.parentRecordId==id&&it.status!="ARCHIVED"})throw ConflictException("El registro tiene elementos asociados")
+        if((x.moduleCode to x.recordType) in setOf("EXH" to "EXHIBITOR","EXH" to "STAND","SES" to "SESSION")&&
+            records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,"RSC","RESOURCE")
+                .any{it.status!="ARCHIVED"&&map(it.payload)["sourceRecordId"]?.toString()==id.toString()})
+            throw ConflictException("El registro tiene recursos publicados")
+        if(records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,"GAM","MISSION")
+                .any{it.status=="ACTIVE"&&it.id!=id&&(map(it.payload)["requirements"] as? List<*>)?.any{requirement->
+                    (requirement as? Map<*,*>)?.get("recordId")?.toString()==id.toString()}==true})
+            throw ConflictException("El registro forma parte de una misión activa")
+        if(x.moduleCode=="GAM"&&x.recordType=="MISSION"&&records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,"GAM","BADGE")
+                .any{it.status=="ACTIVE"&&map(it.payload)["missionId"]?.toString()==id.toString()})
+            throw ConflictException("La misión tiene insignias publicadas")
+    }
     @Transactional fun action(userId:UUID,eventId:UUID,id:UUID,r:ModuleActionRequest):ModuleActionResponse{
         eventService.accessible(userId,eventId);val record=records.findLocked(id)?:throw NotFoundException("Registro no encontrado");if(record.eventId!=eventId)throw NotFoundException("Registro no encontrado");eventService.requireModule(eventId,record.moduleCode);val manager=isManager(userId,eventId);if(!manager&&!eventService.guestModuleVisible(eventId,record.moduleCode)||!visibleTo(record,userId,manager)||record.status!="ACTIVE")throw ConflictException("El registro no está disponible")
         val event=events.findById(eventId).orElseThrow{NotFoundException("Evento no encontrado")};if(event.status==EventStatus.FINISHED&&record.moduleCode !in setOf("GAL","RSC","REV"))throw ConflictException("Esta operación no está disponible después del evento");if(event.status==EventStatus.CANCELLED)throw ConflictException("El evento está cancelado")
         val action=r.action.uppercase()
         if(r.quantity<1)throw BadRequestException("Cantidad inválida")
+        if(mapper.write(r.payload).length>4096)throw BadRequestException("Detalle de acción demasiado grande")
         val rules=map(record.payload)
         val now=Instant.now()
         if(record.moduleCode in setOf("BKG","TRN")){
@@ -293,7 +393,8 @@ data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleA
         val saved=actions.save(ModuleAction(moduleRecordId=id,actorUserId=userId,actionType=action,
             quantity=r.quantity,uniqueAction=unique,payload=mapper.write(if(record.moduleCode=="INT"&&record.recordType=="TRIVIA"&&action=="ANSWER")r.payload+mapOf("score" to if(r.payload["optionId"]?.toString()==rules["correctOptionId"]?.toString())((rules["points"] as? Number)?.toInt()?:1) else 0) else r.payload)))
         if(record.moduleCode=="QUE"&&action in setOf("LEAVE","JOIN")&&moduleEnabled(eventId,"NOT"))notifyNextInQueue(eventId,record)
-        return actionResponse(saved)
+        if(action in setOf("CHECK_IN","VOTE","ANSWER","SAVE","RESERVE","JOIN"))gamification.onEvidence(userId,eventId)
+        return actionResponse(saved,record.moduleCode=="INT"&&record.recordType=="TRIVIA"&&!manager)
     }
     @Transactional(readOnly=true) fun queuePosition(userId:UUID,eventId:UUID,id:UUID):QueuePositionResponse{
         eventService.requireVisibleModule(userId,eventId,"QUE")
@@ -341,7 +442,18 @@ data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleA
                 title="Tu turno se acerca",body="Hay pocas personas delante de ti en ${record.title?:"la cola"}",audienceType="USER",dedupeKey=key))
         }
     }
-    @Transactional(readOnly=true) fun actionList(userId:UUID,eventId:UUID,id:UUID):List<ModuleActionResponse>{eventService.accessible(userId,eventId);val record=find(eventId,id);eventService.requireModule(eventId,record.moduleCode);val manager=isManager(userId,eventId);if(!manager&&!eventService.guestModuleVisible(eventId,record.moduleCode)||!visibleTo(record,userId,manager))throw NotFoundException("Registro no encontrado");return actions.findAllByModuleRecordIdOrderByCreatedAt(id).filter{manager||it.actorUserId==userId}.map(::actionResponse)}
+    @Transactional(readOnly=true) fun actionList(userId:UUID,eventId:UUID,id:UUID):List<ModuleActionResponse>{eventService.accessible(userId,eventId);val record=find(eventId,id);eventService.requireModule(eventId,record.moduleCode);val manager=isManager(userId,eventId);if(!manager&&!eventService.guestModuleVisible(eventId,record.moduleCode)||!visibleTo(record,userId,manager))throw NotFoundException("Registro no encontrado");return actions.findAllByModuleRecordIdOrderByCreatedAt(id).filter{manager||it.actorUserId==userId}.map{actionResponse(it,record.moduleCode=="INT"&&record.recordType=="TRIVIA"&&!manager&&record.status!="CLOSED")}}
+    @Transactional(readOnly=true) fun triviaResults(userId:UUID,eventId:UUID,id:UUID):TriviaResultsResponse{
+        eventService.requireVisibleModule(userId,eventId,"INT")
+        val trivia=find(eventId,id)
+        if(trivia.moduleCode!="INT"||trivia.recordType!="TRIVIA"||trivia.status=="ARCHIVED")throw NotFoundException("Trivia no encontrada")
+        val manager=isManager(userId,eventId)
+        if(!manager&&(trivia.status!="CLOSED"||map(trivia.payload)["resultsPublished"]!=true))
+            throw ForbiddenException("Los resultados aún no están publicados")
+        val answers=actions.findAllByModuleRecordIdOrderByCreatedAt(id).filter{it.actionType=="ANSWER"}
+        return TriviaResultsResponse(id,answers.size,answers.filter{manager||it.actorUserId==userId}
+            .map{TriviaScore(it.actorUserId,map(it.payload)["score"].toString().toIntOrNull()?:0)})
+    }
     @Transactional(readOnly=true) fun pollResults(userId:UUID,eventId:UUID,id:UUID):PollResultsResponse{
         eventService.requireVisibleModule(userId,eventId,"INT")
         val poll=find(eventId,id)
@@ -356,10 +468,12 @@ data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleA
         val needle=query.trim().lowercase()
         if(needle.length !in 2..100)throw BadRequestException("La búsqueda requiere entre 2 y 100 caracteres")
         val manager=isManager(userId,eventId)
-        return listOf("ZONE","POINT").flatMap{records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,"MAP",it)}
+        val searchable=listOf("MAP" to "ZONE","MAP" to "POINT","EXH" to "STAND","SES" to "SESSION","AFO" to "SERVICE_STATUS")
+        return searchable.filter{(module,_)->moduleEnabled(eventId,module)&&(manager||eventService.guestModuleVisible(eventId,module))}
+            .flatMap{(module,type)->records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,module,type)}
             .filter{it.status=="ACTIVE"&&visibleTo(it,userId,manager)}
             .filter{it.title?.lowercase()?.contains(needle)==true||map(it.payload).values.any{value->value is String&&value.lowercase().contains(needle)}}
-            .take(50).map{MapSearchResult(requireNotNull(it.id),it.recordType,it.title,map(it.payload))}
+            .take(50).map{MapSearchResult(requireNotNull(it.id),it.moduleCode,it.recordType,it.title,map(it.payload))}
     }
     @Transactional(readOnly=true) fun myMapLocation(userId:UUID,eventId:UUID):List<MapSearchResult>{
         eventService.requireVisibleModule(userId,eventId,"MAP")
@@ -370,11 +484,27 @@ data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleA
         return listOf("ZONE","POINT").flatMap{records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,"MAP",it)}
             .filter{it.status=="ACTIVE"&&visibleTo(it,userId,false)}
             .filter{map(it.payload).let{data->data["tableLabel"] in table||data["sectorLabel"] in sector}}
-            .map{MapSearchResult(requireNotNull(it.id),it.recordType,it.title,map(it.payload))}
+            .map{MapSearchResult(requireNotNull(it.id),it.moduleCode,it.recordType,it.title,map(it.payload))}
     }
     private fun find(eventId:UUID,id:UUID)=records.findById(id).orElseThrow{NotFoundException("Registro no encontrado")}.also{if(it.eventId!=eventId)throw NotFoundException("Registro no encontrado")}
     private fun validateType(module:String,type:String){if(type !in (types[module]?:emptySet()))throw BadRequestException("Tipo $type no admitido para $module")}
+    private fun validateRecordStatus(module:String,type:String,status:String){
+        val allowed=when(module to type){
+            "ORD" to "ORDER"->setOf("PENDING","ACCEPTED","PREPARING","READY","DELIVERED","CANCELLED")
+            "LNF" to "LOST_ITEM"->setOf("OPEN","RESOLVED")
+            "LNF" to "FOUND_ITEM"->setOf("ACTIVE","DELIVERED")
+            "GAL" to "PHOTO","INT" to "QUESTION","INT" to "GUEST_MESSAGE"->setOf("ACTIVE","PENDING","REJECTED")
+            "SPT" to "MATCH"->setOf("ACTIVE","COMPLETED")
+            "NET" to "MEETING"->setOf("PENDING","ACCEPTED","DECLINED","CANCELLED")
+            else->setOf("ACTIVE","CLOSED")
+        }
+        if(status !in allowed)throw ConflictException("Estado no permitido para $module:$type")
+    }
     private fun validateWindow(start:Instant?,end:Instant?){if(start!=null&&end!=null&&!end.isAfter(start))throw BadRequestException("Período inválido")}
+    private fun validateInputSize(title:String?,payload:Map<String,Any?>){
+        if(title!=null&&title.length>200)throw BadRequestException("Título demasiado largo")
+        if(mapper.write(payload).length>16384)throw BadRequestException("Detalle de registro demasiado grande")
+    }
     private fun isOrderStaff(userId:UUID,eventId:UUID)=try{eventService.authorized(userId,eventId,"ORDERS");true}catch(_:ForbiddenException){false}
     private fun moduleEnabled(eventId:UUID,code:String)=try{eventService.requireModule(eventId,code);true}catch(_:ConflictException){false}
     private fun orderStatusLabel(status:String)=mapOf("ACCEPTED" to "aceptado","PREPARING" to "en preparación","READY" to "listo","DELIVERED" to "entregado","CANCELLED" to "cancelado")[status]?:status.lowercase()
@@ -382,9 +512,15 @@ data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleA
         val price=payload["price"]?.toString()?.toBigDecimalOrNull()?:throw BadRequestException("El artículo requiere precio")
         if(price<BigDecimal.ZERO||payload["available"]!=null&&payload["available"] !is Boolean)throw BadRequestException("Artículo inválido")
     }
-    private fun validateMapPoint(payload:Map<String,Any?>){
+    private fun validateMapPoint(title:String?,payload:Map<String,Any?>){
+        if(title.isNullOrBlank())throw BadRequestException("La zona o punto requiere nombre")
         if(payload["visible"]!=null&&payload["visible"] !is Boolean)throw BadRequestException("Visibilidad de zona inválida")
         listOf("tableLabel","sectorLabel","description").forEach{key->if(payload[key]!=null&&payload[key] !is String)throw BadRequestException("$key inválido")}
+        if(payload["x"]!=null||payload["y"]!=null){
+            val x=payload["x"] as? Number;val y=payload["y"] as? Number
+            if(x==null||y==null||x.toDouble() !in 0.0..100.0||y.toDouble() !in 0.0..100.0)
+                throw BadRequestException("Las coordenadas deben estar entre 0 y 100")
+        }
     }
     private fun pollOptions(payload:Map<String,Any?>):List<String> = (payload["options"] as? List<*>)?.map{
         (it as? Map<*,*>)?.get("id")?.toString()?:throw BadRequestException("Opción de encuesta inválida")
@@ -414,6 +550,19 @@ data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleA
         }
         if(type=="SERVICE_STATUS"&&payload["state"]?.toString() !in setOf("AVAILABLE","BUSY","PAUSED","CLOSED"))
             throw BadRequestException("Estado de servicio inválido")
+    }
+    private fun validateResource(eventId:UUID,payload:Map<String,Any?>){
+        payload["fileId"]?.let { raw ->
+            val fileId=runCatching{UUID.fromString(raw.toString())}.getOrNull()?:throw BadRequestException("Archivo de recurso inválido")
+            val file=files.findById(fileId).orElseThrow{BadRequestException("Archivo de recurso inválido")}
+            if(file.eventId!=eventId||file.moduleCode!="RSC"||file.recipientUserId!=null||!file.active||file.moderationStatus!=FileModerationStatus.ACTIVE)
+                throw BadRequestException("Archivo de recurso inválido")
+        }
+        val raw=payload["sourceRecordId"]?:return
+        val sourceId=runCatching{UUID.fromString(raw.toString())}.getOrNull()?:throw BadRequestException("Fuente de recurso inválida")
+        val source=try{find(eventId,sourceId)}catch(_:NotFoundException){throw BadRequestException("Fuente de recurso inválida")}
+        if(source.status!="ACTIVE"||(source.moduleCode to source.recordType) !in setOf("EXH" to "EXHIBITOR","EXH" to "STAND","SES" to "SESSION"))
+            throw BadRequestException("Fuente de recurso inválida")
     }
     private fun validateLostFound(type:String,title:String?,payload:Map<String,Any?>){
         if(title.isNullOrBlank()||title.length>200)throw BadRequestException("Describe el objeto")
@@ -476,6 +625,8 @@ data class QueuePositionResponse(val recordId:UUID,val position:Int?,val peopleA
         return true
     }
     @Suppress("UNCHECKED_CAST") private fun map(json:String)=mapper.readMap(json)
-    private fun response(x:ModuleRecord)=ModuleRecordResponse(requireNotNull(x.id),x.eventId,x.moduleCode,x.recordType,x.ownerUserId,x.parentRecordId,x.status,x.title,map(x.payload),x.capacity,x.currentCount,x.startsAt,x.endsAt,x.createdAt)
-    private fun actionResponse(x:ModuleAction)=ModuleActionResponse(requireNotNull(x.id),x.moduleRecordId,x.actorUserId,x.actionType,map(x.payload),x.createdAt,x.quantity)
+    private fun response(x:ModuleRecord,guest:Boolean=false)=ModuleRecordResponse(requireNotNull(x.id),x.eventId,x.moduleCode,x.recordType,x.ownerUserId,x.parentRecordId,x.status,x.title,
+        if(guest&&x.moduleCode=="INT"&&x.recordType=="TRIVIA")map(x.payload)-"correctOptionId" else map(x.payload),x.capacity,x.currentCount,x.startsAt,x.endsAt,x.createdAt)
+    private fun actionResponse(x:ModuleAction,hideScore:Boolean=false)=ModuleActionResponse(requireNotNull(x.id),x.moduleRecordId,x.actorUserId,x.actionType,
+        if(hideScore)map(x.payload)-"score" else map(x.payload),x.createdAt,x.quantity)
 }

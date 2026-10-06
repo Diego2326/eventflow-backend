@@ -1,6 +1,6 @@
 # ORD: menú y pedidos
 
-El organizador crea `ORD:MENU_CATEGORY` y `ORD:MENU_ITEM` mediante el [motor modular](module-data.md). Un artículo requiere `payload.price >= 0`, puede usar `payload.available` y `capacity` como existencias. El invitado consulta las listas `GET .../ORD/MENU_CATEGORY` y `GET .../ORD/MENU_ITEM`.
+El organizador crea `ORD:MENU_CATEGORY` con `title` y luego `ORD:MENU_ITEM` con `title` y `parentRecordId` de esa categoría activa mediante el [motor modular](module-data.md). Un artículo requiere `payload.price >= 0`, puede usar `payload.available` y `capacity` como existencias. La categoría no puede retirarse mientras tenga artículos publicados. El invitado consulta las listas `GET .../ORD/MENU_CATEGORY` y `GET .../ORD/MENU_ITEM`.
 
 Para confirmar, crea `ORD:ORDER` con:
 

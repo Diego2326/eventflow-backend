@@ -4,7 +4,7 @@ Backend modular de EventFlow basado en Spring Boot 4, Kotlin, PostgreSQL, Flyway
 
 ## Arquitectura
 
-La API se organiza primero por módulo (`auth`, `event`, `invitation`, `marketplace`, `agenda`, `assistance`, `notification`, `messaging`, `module`, `storage`, `admin` y `user`). Cada módulo contiene las capas que necesita:
+La API se organiza primero por módulo (`auth`, `event`, `invitation`, `marketplace`, `agenda`, `assistance`, `notification`, `messaging`, `module`, `storage`, `admin`, `user`, `capacity`, `interaction`, `networking`, `transport`, `resource`, `session`, `sport`, `gamification` y `exhibition`). Cada módulo contiene las capas que necesita:
 
 - `domain`: estados, reglas del ciclo de vida y modelos del negocio.
 - `application`: servicios y casos de uso por función, contratos de entrada y puertos para persistencia y servicios externos.
@@ -96,7 +96,7 @@ Tipos admitidos:
 | MAP | `ZONE`, `POINT` |
 | ORD | `MENU_CATEGORY`, `MENU_ITEM`, `ORDER` |
 | QUE / BKG | `QUEUE` / `ACTIVITY` |
-| INT | `POLL`, `QUESTION_BOARD`, `TRIVIA`, `DRAW`, `GUEST_MESSAGE`, `SONG` |
+| INT | `POLL`, `QUESTION_BOARD`, `QUESTION`, `TRIVIA`, `DRAW`, `GUEST_MESSAGE`, `SONG` |
 | GAM | `PASSPORT`, `MILESTONE`, `MISSION`, `BADGE` |
 | GAL | `PHOTO` |
 | NET | `PROFILE`, `MEETING` |
@@ -125,15 +125,15 @@ Las acciones (`JOIN`, `RESERVE`, `VOTE`, `SAVE`, `CHECK_IN`, `CANCEL`, etc.) gua
 ./gradlew test
 ```
 
-## Alcance pendiente
+## Cobertura del DERCAS
 
-Los módulos de segunda etapa tienen reglas para pedidos, encuestas, preguntas, mapa y respuestas posteriores, pero todavía requieren flujos específicos para cubrir todos sus criterios del DERCAS. `ORD` valida artículos, cantidades y cupo, calcula el total, controla las transiciones del pedido y avisa al invitado si `NOT` está habilitado. `INT:POLL` valida opciones, aplica la regla de voto único o múltiple y oculta resultados hasta su publicación. `INT:QUESTION` usa un tablero, moderación opcional y voto único. `MAP` oculta zonas no publicadas y permite buscar puntos y localizar la mesa del invitado. `REV:SURVEY_RESPONSE` exige evento finalizado y limita a una respuesta por invitado y encuesta. `CAL` genera recordatorios en la app hasta 15 minutos antes de las actividades favoritas cuando `NOT` está habilitado.
+La primera etapa cubre autenticación, usuarios, eventos, catálogo modular, marketplace, reservaciones, agenda, invitaciones, Event Pass, asistencia operativa, notificaciones y administración. La segunda etapa incluye pago simulado, mensajería, mapa, pedidos, interacción, galería, recursos y retroalimentación. `ORD` valida artículos, cantidades y cupo, calcula el total, controla las transiciones del pedido y avisa al invitado si `NOT` está habilitado. `INT:POLL` valida opciones, aplica la regla de voto único o múltiple y oculta resultados hasta su publicación. `INT:QUESTION` usa un tablero, moderación opcional y voto único. `MAP` oculta zonas no publicadas y permite buscar puntos, stands, sesiones y servicios, además de localizar la mesa del invitado. `REV:SURVEY_RESPONSE` exige evento finalizado y limita a una respuesta por invitado y encuesta. `CAL` genera recordatorios en la app hasta 15 minutos antes de las actividades favoritas cuando `NOT` está habilitado.
 
 Las extensiones tienen avances verificables: `QUE` aplica cupo, turno y aviso deduplicado; `BKG` y `TRN` controlan cupos y cancelaciones; `TRN` genera avisos de salida; `INT:TRIVIA` puntúa respuestas, `INT:DRAW` sortea entre invitados con check-in y excluye ganadores anteriores, y el libro de mensajes usa moderación configurable. `NET` limita los perfiles al consentimiento, ofrece sugerencias por intereses, QR de perfil y reuniones con control de choques. `GAM` comprueba hitos, calcula misiones y otorga insignias. `SPT` avanza ganadores en el bracket. `AFO` informa aforo y estado de servicios. `RSC`, `SES` y `EXH` permiten guardar y consultar recursos personales; `RSC` publica certificados privados tras verificar asistencia. `SES` registra asistencia mediante personal. `GAL` distingue galería oficial posterior. `REV` admite encuestas anónimas con respuesta única; `NOT` segmenta también por asistencia a sesión o reserva de transporte.
 
-Siguen pendientes de cerrar criterios específicos del DERCAS: asociación formal entre expositores/stands, sesiones/ponentes/materiales y rutas/salidas, además de una representación QR lista para imprimir (la API entrega el valor para codificar). Las misiones calculan progreso a partir de acciones y las insignias se sincronizan con una llamada explícita; los tipos genéricos restantes necesitan validación de campos y transiciones propias antes de considerarse completos.
+Las asociaciones de categoría/artículo, expositor/stand/recurso, sesión/ponente/material y ruta/salida se validan antes de publicar y al retirar registros. Los recursos requieren archivo público del evento o enlace HTTPS. Las acciones que completan misiones otorgan insignias automáticamente. Las API de Event Pass, networking y recursos entregan el valor codificable como QR; la aplicación cliente dibuja el QR y muestra la vista de impresión.
 
-Para crear un pedido en `ORD:ORDER`, el payload contiene `items` con `itemId` y `quantity`, por ejemplo `{ "items": [{ "itemId": "<uuid>", "quantity": 2 }], "location": "Mesa 8" }`. Cada `ORD:MENU_ITEM` requiere `price` no negativo y puede declarar `available`; su `capacity` representa existencias. El personal con permiso `ORDERS` avanza el pedido mediante `PATCH /api/events/{eventId}/module-data/records/{recordId}` y el invitado puede cancelarlo mientras esté pendiente.
+Para crear un pedido en `ORD:ORDER`, el payload contiene `items` con `itemId` y `quantity`, por ejemplo `{ "items": [{ "itemId": "<uuid>", "quantity": 2 }], "location": "Mesa 8" }`. Cada `ORD:MENU_ITEM` requiere `parentRecordId` de una categoría activa, `price` no negativo y puede declarar `available`; su `capacity` representa existencias. El personal con permiso `ORDERS` avanza el pedido mediante `PATCH /api/events/{eventId}/module-data/records/{recordId}` y el invitado puede cancelarlo mientras esté pendiente.
 
 Una encuesta `INT:POLL` recibe `options` como lista de objetos `{ "id": "a", "label": "Opción A" }`, `allowMultiple` y `resultsPublished`. Cada voto usa una acción `VOTE` con `{ "optionId": "a" }`. `GET /api/events/{eventId}/module-data/records/{recordId}/poll-results` entrega el conteo al organizador y al invitado después de publicar resultados.
 

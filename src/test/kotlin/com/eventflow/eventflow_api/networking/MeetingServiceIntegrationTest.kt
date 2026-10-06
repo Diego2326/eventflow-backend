@@ -10,11 +10,13 @@ import com.eventflow.eventflow_api.invitation.domain.Invitation
 import com.eventflow.eventflow_api.invitation.infrastructure.persistence.InvitationRepository
 import com.eventflow.eventflow_api.module.application.ModuleDataService
 import com.eventflow.eventflow_api.module.application.ModuleRecordRequest
+import com.eventflow.eventflow_api.module.application.ModuleRecordUpdate
 import com.eventflow.eventflow_api.module.domain.ModuleCatalog
 import com.eventflow.eventflow_api.module.infrastructure.persistence.ModuleCatalogRepository
 import com.eventflow.eventflow_api.networking.application.MeetingRequest
 import com.eventflow.eventflow_api.networking.application.MeetingService
 import com.eventflow.eventflow_api.shared.application.error.ConflictException
+import com.eventflow.eventflow_api.shared.application.error.BadRequestException
 import com.eventflow.eventflow_api.shared.application.error.NotFoundException
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -41,6 +43,7 @@ import java.util.UUID
         listOf(a,b,c).forEach{modules.create(it,eventId,"NET","PROFILE",ModuleRecordRequest(payload=mapOf("consent" to true,"visible" to true,"interests" to listOf("tech"))))}
         val start=Instant.now().plusSeconds(1800)
         val first=meetings.request(a,eventId,MeetingRequest(b,start,start.plusSeconds(900)))
+        assertThrows(BadRequestException::class.java){modules.update(owner,eventId,first.id,ModuleRecordUpdate(status="ACCEPTED"))}
         assertThrows(NotFoundException::class.java){modules.get(c,eventId,first.id)}
         meetings.decide(b,eventId,first.id,true)
         val second=meetings.request(c,eventId,MeetingRequest(b,start.plusSeconds(300),start.plusSeconds(1200)))

@@ -7,9 +7,11 @@ import com.eventflow.eventflow_api.event.application.CreateEventRequest
 import com.eventflow.eventflow_api.event.application.EventService
 import com.eventflow.eventflow_api.module.application.ModuleDataService
 import com.eventflow.eventflow_api.module.application.ModuleRecordRequest
+import com.eventflow.eventflow_api.module.application.ModuleRecordUpdate
 import com.eventflow.eventflow_api.module.domain.ModuleCatalog
 import com.eventflow.eventflow_api.module.infrastructure.persistence.ModuleCatalogRepository
 import com.eventflow.eventflow_api.shared.application.error.ConflictException
+import com.eventflow.eventflow_api.shared.application.error.BadRequestException
 import com.eventflow.eventflow_api.sport.application.MatchResultRequest
 import com.eventflow.eventflow_api.sport.application.MatchResultService
 import org.junit.jupiter.api.Assertions.*
@@ -39,6 +41,7 @@ import java.util.UUID
         val semiB=modules.create(owner,eventId,"SPT","MATCH",ModuleRecordRequest(title="Semi B",payload=mapOf(
             "round" to 1,"participantAId" to teams[2].toString(),"participantBId" to teams[3].toString(),
             "nextMatchId" to final.id.toString(),"nextSlot" to "B")))
+        assertThrows(BadRequestException::class.java){modules.update(owner,eventId,semiA.id,ModuleRecordUpdate(payload=mapOf("scoreA" to 99)))}
         assertEquals(teams[0],results.report(owner,eventId,semiA.id,MatchResultRequest(2,1)).winnerId)
         assertEquals(teams[3],results.report(owner,eventId,semiB.id,MatchResultRequest(0,3)).winnerId)
         assertEquals(teams[0].toString(),modules.get(owner,eventId,final.id).payload["participantAId"])

@@ -11,3 +11,5 @@ Todos los registros viven bajo `/api/events/{eventId}/module-data`. Para crear: 
 `POST /records/{id}/actions` usa `{ "action": "SAVE", "payload": {}, "quantity": 1 }`; `GET /records/{id}/actions` muestra las acciones propias del invitado o todas al organizador. Las acciones se limitan por **tipo de registro**: no envíes acciones genéricas a registros no compatibles. `GET /my-resources` devuelve recursos, sesiones y expositores guardados. Las reglas particulares y rutas especializadas están en cada archivo de módulo.
 
 Los invitados solo reciben registros publicados y visibles; los registros privados, pendientes y de otros usuarios devuelven 404 o se omiten de listas. Usa `moduleCode` y `recordType` de la respuesta para decidir el componente de UI; no supongas que un `payload` arbitrario implica una operación permitida.
+
+El título admite hasta 200 caracteres. El JSON de `payload` admite hasta 16 KiB por registro y 4 KiB por acción. Las operaciones que crean o actualizan registros validan los campos específicos de cada tipo antes de publicarlos.

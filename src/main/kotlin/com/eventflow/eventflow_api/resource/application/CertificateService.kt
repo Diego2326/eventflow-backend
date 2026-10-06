@@ -2,6 +2,7 @@ package com.eventflow.eventflow_api.resource.application
 
 import com.eventflow.eventflow_api.event.application.EventService
 import com.eventflow.eventflow_api.event.domain.EventStatus
+import com.eventflow.eventflow_api.event.application.port.EventRepositoryPort
 import com.eventflow.eventflow_api.invitation.application.port.GuestAccessLogRepositoryPort
 import com.eventflow.eventflow_api.invitation.application.port.InvitationRepositoryPort
 import com.eventflow.eventflow_api.module.application.port.ModuleRecordRepositoryPort
@@ -19,12 +20,13 @@ import java.util.UUID
 data class CertificateIssueRequest(val recipientUserId:UUID,val fileId:UUID,val title:String)
 data class CertificateResponse(val id:UUID,val recipientUserId:UUID,val fileId:UUID,val title:String,val downloadUrl:String)
 
-@Service class CertificateService(private val events:EventService,private val invitations:InvitationRepositoryPort,
+@Service class CertificateService(private val events:EventService,private val eventRecords:EventRepositoryPort,private val invitations:InvitationRepositoryPort,
     private val logs:GuestAccessLogRepositoryPort,private val files:FileAssetRepositoryPort,
     private val records:ModuleRecordRepositoryPort,private val json:JsonCodec){
     @Transactional fun issue(userId:UUID,eventId:UUID,r:CertificateIssueRequest):CertificateResponse{
         if(events.owned(userId,eventId).status!=EventStatus.FINISHED)throw ConflictException("Los certificados se publican después del evento")
         events.requireModule(eventId,"RSC")
+        eventRecords.findLocked(eventId)?:throw NotFoundException("Evento no encontrado")
         if(r.title.isBlank()||r.title.length>150)throw BadRequestException("Título de certificado inválido")
         val eligible=invitations.findAllByLinkedUserId(r.recipientUserId).any{inv->
             inv.eventId==eventId&&inv.revokedAt==null&&logs.findAllByInvitationIdOrderByCreatedAt(requireNotNull(inv.id))
