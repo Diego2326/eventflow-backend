@@ -133,6 +133,8 @@ Las extensiones tienen avances verificables: `QUE` aplica cupo, turno y aviso de
 
 Las asociaciones de categoría/artículo, expositor/stand/recurso, sesión/ponente/material y ruta/salida se validan antes de publicar y al retirar registros. Los recursos requieren archivo público del evento o enlace HTTPS. Las acciones que completan misiones otorgan insignias automáticamente. Las API de Event Pass, networking y recursos entregan el valor codificable como QR; la aplicación cliente dibuja el QR y muestra la vista de impresión.
 
+Las sesiones y los partidos se vinculan mediante `payload.agendaItemId` a una actividad `CAL` del mismo evento. Los cambios de programación se hacen en la agenda y se reflejan en el registro vinculado. Los participantes deportivos y los partidos declaran categoría; `AFO:ZONE_CAPACITY` apunta mediante `payload.zoneId` a una zona `MAP` o mesa `GST` activa.
+
 Para crear un pedido en `ORD:ORDER`, el payload contiene `items` con `itemId` y `quantity`, por ejemplo `{ "items": [{ "itemId": "<uuid>", "quantity": 2 }], "location": "Mesa 8" }`. Cada `ORD:MENU_ITEM` requiere `parentRecordId` de una categoría activa, `price` no negativo y puede declarar `available`; su `capacity` representa existencias. El personal con permiso `ORDERS` avanza el pedido mediante `PATCH /api/events/{eventId}/module-data/records/{recordId}` y el invitado puede cancelarlo mientras esté pendiente.
 
 Una encuesta `INT:POLL` recibe `options` como lista de objetos `{ "id": "a", "label": "Opción A" }`, `allowMultiple` y `resultsPublished`. Cada voto usa una acción `VOTE` con `{ "optionId": "a" }`. `GET /api/events/{eventId}/module-data/records/{recordId}/poll-results` entrega el conteo al organizador y al invitado después de publicar resultados.

@@ -1,5 +1,7 @@
 package com.eventflow.eventflow_api.module.application
 
+import com.eventflow.eventflow_api.agenda.application.port.AgendaItemRepositoryPort
+import com.eventflow.eventflow_api.agenda.domain.AgendaItem
 import com.eventflow.eventflow_api.event.application.EventService
 import com.eventflow.eventflow_api.event.application.port.EventRepositoryPort
 import com.eventflow.eventflow_api.event.domain.EventStatus
@@ -41,7 +43,8 @@ data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:Li
 
 @Service class ModuleDataService(private val records:ModuleRecordRepositoryPort,private val actions:ModuleActionRepositoryPort,private val invitations:InvitationRepositoryPort,private val notifications:NotificationRepositoryPort,private val events:EventRepositoryPort,private val eventService:EventService,private val mapper:JsonCodec,
     private val surveyParticipation:SurveyParticipationRepositoryPort,private val surveyAnonymity:SurveyAnonymity,
-    private val gamification:GamificationService,private val files:FileAssetRepositoryPort){
+    private val gamification:GamificationService,private val files:FileAssetRepositoryPort,
+    private val agenda:AgendaItemRepositoryPort){
     private val guestCreatable=setOf("GAL:PHOTO","NET:PROFILE","LNF:LOST_ITEM","REV:SURVEY_RESPONSE","ORD:ORDER","INT:QUESTION","INT:GUEST_MESSAGE","INT:SONG")
     private val types=mapOf(
         "MAP" to setOf("ZONE","POINT"),"ORD" to setOf("MENU_CATEGORY","MENU_ITEM","ORDER"),"QUE" to setOf("QUEUE"),"BKG" to setOf("ACTIVITY"),
@@ -58,6 +61,10 @@ data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:Li
         if(!isManager(userId,eventId)&&!eventService.guestModuleVisible(eventId,module))throw ForbiddenException("El módulo no está disponible para invitados")
         val event=events.findById(eventId).orElseThrow{NotFoundException("Evento no encontrado")}
         if(!isManager(userId,eventId)&&(event.status==EventStatus.DRAFT||event.status==EventStatus.CANCELLED||event.status==EventStatus.FINISHED&&module !in setOf("GAL","REV")))throw ConflictException("El evento no admite esta operación")
+        val linkedAgenda=if(module=="SES"&&type=="SESSION"||module=="SPT"&&type=="MATCH")
+            validateAgendaLink(eventId,r.payload,r.title,r.startsAt,r.endsAt) else null
+        if(module=="SES"&&type=="SESSION"&&r.capacity!=null&&linkedAgenda?.capacity!=r.capacity)
+            throw BadRequestException("El cupo de sesión no coincide con la agenda")
         r.parentRecordId?.let { parentId ->
             val parent=find(eventId,parentId)
             if(parent.moduleCode!=module||parent.status=="ARCHIVED")throw BadRequestException("Registro padre inválido")
@@ -70,7 +77,8 @@ data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:Li
             else->null
         }
         if(expectedParent!=null){
-            val parent=r.parentRecordId?.let{find(eventId,it)}?:throw BadRequestException("El registro requiere $expectedParent")
+            val parent=r.parentRecordId?.let{records.findLocked(it)}?:throw BadRequestException("El registro requiere $expectedParent")
+            if(parent.eventId!=eventId)throw BadRequestException("Registro padre inválido")
             if(parent.moduleCode!=module||parent.recordType!=expectedParent||parent.status!="ACTIVE")
                 throw BadRequestException("Registro padre inválido")
         }
@@ -111,15 +119,20 @@ data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:Li
         if(module=="NET"&&type=="MEETING")throw BadRequestException("Usa el flujo de reuniones")
         if(module=="RSC"&&type=="CERTIFICATE")throw BadRequestException("Usa el flujo de certificados")
         if(module=="LNF"&&type in setOf("LOST_ITEM","FOUND_ITEM"))validateLostFound(type,r.title,r.payload)
-        if(module=="AFO")validateCapacityRecord(type,r.payload,r.capacity)
+        if(module=="AFO"){
+            validateCapacityRecord(type,r.payload,r.capacity)
+            if(type=="ZONE_CAPACITY")validateZoneCapacityLink(eventId,r.title,r.payload)
+        }
         if(module=="SPT"&&type=="MATCH"){
+            val category=r.payload["category"] as? String
+            if(category.isNullOrBlank()||category.length>80)throw BadRequestException("El partido requiere categoría")
             val first=runCatching{UUID.fromString(r.payload["participantAId"].toString())}.getOrNull()
             val second=runCatching{UUID.fromString(r.payload["participantBId"].toString())}.getOrNull()
             val round=r.payload["round"]?.toString()?.toIntOrNull()?:1
             if(round<1||first==second&&first!=null||round==1&&(first==null||second==null))throw BadRequestException("Participantes de partido inválidos")
             listOfNotNull(first,second).forEach{participantId->
                 val participant=find(eventId,participantId)
-                if(participant.moduleCode!="SPT"||participant.recordType !in setOf("PARTICIPANT","TEAM")||participant.status!="ACTIVE")
+                if(participant.moduleCode!="SPT"||participant.recordType !in setOf("PARTICIPANT","TEAM")||participant.status!="ACTIVE"||map(participant.payload)["category"]!=category)
                     throw BadRequestException("Participante de partido inválido")
             }
         }
@@ -194,18 +207,26 @@ data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:Li
         }
         validateRecordStatus(module,type,initialStatus)
         val anonymousResponse=module=="REV"&&type=="SURVEY_RESPONSE"&&map(find(eventId,requireNotNull(r.parentRecordId)).payload)["anonymous"]==true
-        val saved=records.save(ModuleRecord(eventId=eventId,moduleCode=module,recordType=type,ownerUserId=if(anonymousResponse)null else userId,parentRecordId=r.parentRecordId,status=initialStatus,title=r.title,payload=mapper.write(payload),capacity=r.capacity,startsAt=r.startsAt,endsAt=r.endsAt))
+        val saved=records.save(ModuleRecord(eventId=eventId,moduleCode=module,recordType=type,ownerUserId=if(anonymousResponse)null else userId,parentRecordId=r.parentRecordId,status=initialStatus,title=r.title,payload=mapper.write(payload),capacity=if(module=="SES"&&type=="SESSION")linkedAgenda?.capacity else r.capacity,startsAt=linkedAgenda?.startsAt?:r.startsAt,endsAt=linkedAgenda?.endsAt?:r.endsAt))
         if(anonymousResponse)surveyParticipation.save(SurveyParticipation(surveyAnonymity.participantHash(requireNotNull(r.parentRecordId),userId),r.parentRecordId,requireNotNull(saved.id)))
         return response(saved)
     }
     @Transactional(readOnly=true) fun list(userId:UUID,eventId:UUID,moduleRaw:String,typeRaw:String):List<ModuleRecordResponse>{val module=moduleRaw.uppercase();val type=typeRaw.uppercase();eventService.accessible(userId,eventId);eventService.requireModule(eventId,module);validateType(module,type);val manager=isManager(userId,eventId)||(module=="ORD"&&type=="ORDER"&&isOrderStaff(userId,eventId));if(!manager&&!eventService.guestModuleVisible(eventId,module))return emptyList();return records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,module,type).filter{it.status!="ARCHIVED"&&visibleTo(it,userId,manager)}.map{response(it,!manager)}}
     @Transactional(readOnly=true) fun get(userId:UUID,eventId:UUID,id:UUID):ModuleRecordResponse{eventService.accessible(userId,eventId);val record=find(eventId,id);eventService.requireModule(eventId,record.moduleCode);val manager=isManager(userId,eventId)||(record.moduleCode=="ORD"&&record.recordType=="ORDER"&&isOrderStaff(userId,eventId));if(!manager&&(!eventService.guestModuleVisible(eventId,record.moduleCode)||!visibleTo(record,userId,false)))throw NotFoundException("Registro no encontrado");return response(record,!manager)}
-    @Transactional fun update(userId:UUID,eventId:UUID,id:UUID,r:ModuleRecordUpdate):ModuleRecordResponse{eventService.accessible(userId,eventId);val x=find(eventId,id);val manager=isManager(userId,eventId);val orderStaff=x.moduleCode=="ORD"&&x.recordType=="ORDER"&&isOrderStaff(userId,eventId);if(!manager&&!orderStaff&&x.ownerUserId!=userId)throw ForbiddenException("No puedes modificar este registro");eventService.requireModule(eventId,x.moduleCode);if(!manager&&!orderStaff&&!eventService.guestModuleVisible(eventId,x.moduleCode))throw ForbiddenException("El módulo no está disponible para invitados");if(!manager&&x.moduleCode=="GAL"&&x.status=="ACTIVE"&&(r.title!=null||r.payload!=null))throw ConflictException("La foto aprobada requiere nueva moderación");if(!manager&&x.moduleCode=="REV"&&x.recordType=="SURVEY_RESPONSE")throw ForbiddenException("La respuesta enviada no se puede modificar");if(!manager&&!orderStaff&&(r.capacity!=null||r.startsAt!=null||r.endsAt!=null))throw ForbiddenException("No puedes cambiar capacidad u horario");validateWindow(r.startsAt?:x.startsAt,r.endsAt?:x.endsAt)
+    @Transactional fun update(userId:UUID,eventId:UUID,id:UUID,r:ModuleRecordUpdate):ModuleRecordResponse{eventService.accessible(userId,eventId);val x=lockedRecord(eventId,id);val manager=isManager(userId,eventId);val orderStaff=x.moduleCode=="ORD"&&x.recordType=="ORDER"&&isOrderStaff(userId,eventId);if(!manager&&!orderStaff&&x.ownerUserId!=userId)throw ForbiddenException("No puedes modificar este registro");eventService.requireModule(eventId,x.moduleCode);if(!manager&&!orderStaff&&!eventService.guestModuleVisible(eventId,x.moduleCode))throw ForbiddenException("El módulo no está disponible para invitados");if(!manager&&x.moduleCode=="GAL"&&x.status=="ACTIVE"&&(r.title!=null||r.payload!=null))throw ConflictException("La foto aprobada requiere nueva moderación");if(!manager&&x.moduleCode=="REV"&&x.recordType=="SURVEY_RESPONSE")throw ForbiddenException("La respuesta enviada no se puede modificar");if(!manager&&!orderStaff&&(r.capacity!=null||r.startsAt!=null||r.endsAt!=null))throw ForbiddenException("No puedes cambiar capacidad u horario");validateWindow(r.startsAt?:x.startsAt,r.endsAt?:x.endsAt)
         r.payload?.let{validateInputSize(r.title,it)}
         if(r.payload==null)validateInputSize(r.title,emptyMap())
         if(x.moduleCode=="NET"&&x.recordType=="MEETING")throw BadRequestException("Usa el flujo de reuniones")
         if(x.moduleCode=="RSC"&&x.recordType=="CERTIFICATE")throw BadRequestException("Retira y vuelve a publicar el certificado")
         if(x.moduleCode=="SPT"&&x.recordType=="MATCH"&&r.payload!=null)throw BadRequestException("Usa el flujo de resultados")
+        if(x.moduleCode=="SPT"&&x.recordType in setOf("TEAM","PARTICIPANT","BRACKET")&&r.payload!=null&&
+            r.payload["category"]!=map(x.payload)["category"])throw ConflictException("La categoría publicada no se puede cambiar")
+        if((x.moduleCode=="SPT"&&x.recordType=="MATCH"||x.moduleCode=="SES"&&x.recordType=="SESSION")&&
+            (r.title!=null||r.startsAt!=null||r.endsAt!=null||r.capacity!=null))throw ConflictException("Edita la programación desde la agenda")
+        if(x.moduleCode=="SES"&&x.recordType=="SESSION"&&r.payload!=null){
+            val existing=map(x.payload)["agendaItemId"]?.toString()
+            if(r.payload["agendaItemId"]?.toString()!=existing)throw ConflictException("No puedes cambiar la actividad asociada")
+        }
         if(x.moduleCode=="SPT"&&x.recordType=="MATCH"&&r.status!=null&&r.status.uppercase()!=x.status)
             throw BadRequestException("Usa el flujo de resultados")
         if(x.moduleCode=="GAM"&&x.recordType in setOf("MISSION","BADGE")&&r.payload!=null)
@@ -258,7 +279,11 @@ data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:Li
             validateNetworkingProfile(r.payload)
         }
         if(x.moduleCode=="BKG"&&x.recordType=="ACTIVITY"&&r.payload!=null&&r.payload["cancelBeforeMinutes"]!=null&&((r.payload["cancelBeforeMinutes"] as? Number)?.toLong()?:-1L) !in 0..10080)throw BadRequestException("Plazo de cancelación inválido")
-        if(x.moduleCode=="AFO")validateCapacityRecord(x.recordType,r.payload?:map(x.payload),r.capacity?:x.capacity)
+        if(x.moduleCode=="AFO"){
+            val nextPayload=r.payload?:map(x.payload)
+            validateCapacityRecord(x.recordType,nextPayload,r.capacity?:x.capacity)
+            if(x.recordType=="ZONE_CAPACITY")validateZoneCapacityLink(eventId,r.title?:x.title,nextPayload,id)
+        }
         if(x.moduleCode=="RSC"&&x.recordType=="RESOURCE"&&r.payload!=null)validateResource(eventId,r.payload)
         if(r.title!=null||r.payload!=null)CatalogRecordRules.validate(x.moduleCode,x.recordType,r.title?:x.title,r.payload?:map(x.payload))
         if(x.moduleCode=="LNF"){
@@ -283,7 +308,7 @@ data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:Li
         return response(x)}
     @Transactional fun archive(userId:UUID,eventId:UUID,id:UUID){
         eventService.accessible(userId,eventId)
-        val x=find(eventId,id)
+        val x=lockedRecord(eventId,id)
         if(!isManager(userId,eventId)&&x.ownerUserId!=userId)throw ForbiddenException("No puedes retirar este registro")
         if(x.moduleCode=="NET"&&x.recordType=="MEETING")throw BadRequestException("Usa el flujo de reuniones")
         if(x.moduleCode=="REV"&&x.recordType=="SURVEY_RESPONSE"&&!isManager(userId,eventId))throw ForbiddenException("La respuesta enviada no se puede retirar")
@@ -315,6 +340,10 @@ data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:Li
         if(x.moduleCode=="GAM"&&x.recordType=="MISSION"&&records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,"GAM","BADGE")
                 .any{it.status=="ACTIVE"&&map(it.payload)["missionId"]?.toString()==id.toString()})
             throw ConflictException("La misión tiene insignias publicadas")
+        if((x.moduleCode to x.recordType) in setOf("MAP" to "ZONE","GST" to "SEATING_AREA")&&
+            records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,"AFO","ZONE_CAPACITY")
+                .any{it.status=="ACTIVE"&&map(it.payload)["zoneId"]?.toString()==id.toString()})
+            throw ConflictException("La zona tiene un aforo publicado")
     }
     @Transactional fun action(userId:UUID,eventId:UUID,id:UUID,r:ModuleActionRequest):ModuleActionResponse{
         eventService.accessible(userId,eventId);val record=records.findLocked(id)?:throw NotFoundException("Registro no encontrado");if(record.eventId!=eventId)throw NotFoundException("Registro no encontrado");eventService.requireModule(eventId,record.moduleCode);val manager=isManager(userId,eventId);if(!manager&&!eventService.guestModuleVisible(eventId,record.moduleCode)||!visibleTo(record,userId,manager)||record.status!="ACTIVE")throw ConflictException("El registro no está disponible")
@@ -487,6 +516,22 @@ data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:Li
             .map{MapSearchResult(requireNotNull(it.id),it.moduleCode,it.recordType,it.title,map(it.payload))}
     }
     private fun find(eventId:UUID,id:UUID)=records.findById(id).orElseThrow{NotFoundException("Registro no encontrado")}.also{if(it.eventId!=eventId)throw NotFoundException("Registro no encontrado")}
+    private fun lockedRecord(eventId:UUID,id:UUID)=records.findLocked(id)?.also{if(it.eventId!=eventId)throw NotFoundException("Registro no encontrado")}
+        ?:throw NotFoundException("Registro no encontrado")
+    private fun validateAgendaLink(eventId:UUID,payload:Map<String,Any?>,title:String?,start:Instant?,end:Instant?):AgendaItem{
+        eventService.requireModule(eventId,"CAL")
+        val id=runCatching{UUID.fromString(payload["agendaItemId"]?.toString())}.getOrNull()
+            ?:throw BadRequestException("La sesión o partido requiere una actividad de agenda")
+        val activity=agenda.findLocked(id)?:throw BadRequestException("Actividad de agenda inválida")
+        if(activity.eventId!=eventId||activity.status!="SCHEDULED"||title!=activity.title||
+            start!=null&&start!=activity.startsAt||end!=null&&end!=activity.endsAt)
+            throw BadRequestException("La programación no coincide con la agenda")
+        if(listOf("SES" to "SESSION","SPT" to "MATCH").any{(module,type)->
+                records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,module,type)
+                    .any{it.status!="ARCHIVED"&&map(it.payload)["agendaItemId"]?.toString()==id.toString()}})
+            throw ConflictException("La actividad ya está vinculada")
+        return activity
+    }
     private fun validateType(module:String,type:String){if(type !in (types[module]?:emptySet()))throw BadRequestException("Tipo $type no admitido para $module")}
     private fun validateRecordStatus(module:String,type:String,status:String){
         val allowed=when(module to type){
@@ -551,6 +596,18 @@ data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:Li
         if(type=="SERVICE_STATUS"&&payload["state"]?.toString() !in setOf("AVAILABLE","BUSY","PAUSED","CLOSED"))
             throw BadRequestException("Estado de servicio inválido")
     }
+    private fun validateZoneCapacityLink(eventId:UUID,title:String?,payload:Map<String,Any?>,excludeId:UUID?=null){
+        if(title.isNullOrBlank())throw BadRequestException("El aforo requiere nombre")
+        val zoneId=runCatching{UUID.fromString(payload["zoneId"]?.toString())}.getOrNull()
+            ?:throw BadRequestException("El aforo requiere una zona")
+        val zone=records.findLocked(zoneId)?:throw BadRequestException("Zona de aforo inválida")
+        if(zone.eventId!=eventId)throw BadRequestException("Zona de aforo inválida")
+        if(zone.status!="ACTIVE"||(zone.moduleCode to zone.recordType) !in setOf("MAP" to "ZONE","GST" to "SEATING_AREA"))
+            throw BadRequestException("Zona de aforo inválida")
+        if(records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,"AFO","ZONE_CAPACITY")
+                .any{it.id!=excludeId&&it.status!="ARCHIVED"&&map(it.payload)["zoneId"]?.toString()==zoneId.toString()})
+            throw ConflictException("La zona ya tiene un aforo")
+    }
     private fun validateResource(eventId:UUID,payload:Map<String,Any?>){
         payload["fileId"]?.let { raw ->
             val fileId=runCatching{UUID.fromString(raw.toString())}.getOrNull()?:throw BadRequestException("Archivo de recurso inválido")
@@ -560,7 +617,8 @@ data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:Li
         }
         val raw=payload["sourceRecordId"]?:return
         val sourceId=runCatching{UUID.fromString(raw.toString())}.getOrNull()?:throw BadRequestException("Fuente de recurso inválida")
-        val source=try{find(eventId,sourceId)}catch(_:NotFoundException){throw BadRequestException("Fuente de recurso inválida")}
+        val source=records.findLocked(sourceId)?:throw BadRequestException("Fuente de recurso inválida")
+        if(source.eventId!=eventId)throw BadRequestException("Fuente de recurso inválida")
         if(source.status!="ACTIVE"||(source.moduleCode to source.recordType) !in setOf("EXH" to "EXHIBITOR","EXH" to "STAND","SES" to "SESSION"))
             throw BadRequestException("Fuente de recurso inválida")
     }

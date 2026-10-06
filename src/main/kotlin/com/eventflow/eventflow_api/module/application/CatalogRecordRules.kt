@@ -20,6 +20,10 @@ object CatalogRecordRules {
         }
         if (module == "TRN" && type == "DEPARTURE" && payload["requiresReservation"] != null && payload["requiresReservation"] !is Boolean)
             throw BadRequestException("Configuración de reserva inválida")
+        if (module == "SPT" && type in setOf("TEAM", "PARTICIPANT", "BRACKET")) {
+            val category = payload["category"] as? String
+            if (category.isNullOrBlank() || category.length > 80) throw BadRequestException("La competencia requiere categoría")
+        }
         if (module == "RSC" && type == "RESOURCE") {
             val url = payload["url"]
             val fileId = payload["fileId"]

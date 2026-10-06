@@ -7,6 +7,7 @@ import java.time.Instant
 import java.util.UUID
 
 interface AgendaItemRepositoryPort : CrudPort<AgendaItem, UUID> {
+    fun findLocked(id: UUID): AgendaItem?
     fun findAllByEventIdOrderByStartsAt(eventId: UUID): List<AgendaItem>
     fun findAllByStartsAtBetweenAndStatusNot(from: Instant, to: Instant, status: String): List<AgendaItem>
 }

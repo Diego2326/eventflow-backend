@@ -7,7 +7,7 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
 
-data class ZoneCapacityResponse(val id:UUID,val name:String?,val capacity:Int,val occupied:Int,val available:Int,val state:String)
+data class ZoneCapacityResponse(val id:UUID,val zoneId:UUID?,val name:String?,val capacity:Int,val occupied:Int,val available:Int,val state:String)
 data class ServiceStateResponse(val id:UUID,val name:String?,val state:String)
 
 @Service class CapacityService(private val eventService:EventService,private val records:ModuleRecordRepositoryPort,
@@ -20,7 +20,8 @@ data class ServiceStateResponse(val id:UUID,val name:String?,val state:String)
                 val occupied=json.readMap(record.payload)["occupied"].toString().toInt()
                 val available=(capacity-occupied).coerceAtLeast(0)
                 val state=when {available==0->"FULL";occupied.toLong()*10>=capacity.toLong()*8->"NEAR_LIMIT";else->"AVAILABLE"}
-                ZoneCapacityResponse(requireNotNull(record.id),record.title,capacity,occupied,available,state)
+                val zoneId=runCatching{UUID.fromString(json.readMap(record.payload)["zoneId"]?.toString())}.getOrNull()
+                ZoneCapacityResponse(requireNotNull(record.id),zoneId,record.title,capacity,occupied,available,state)
             }
     }
     @Transactional(readOnly=true) fun services(userId:UUID,eventId:UUID):List<ServiceStateResponse>{

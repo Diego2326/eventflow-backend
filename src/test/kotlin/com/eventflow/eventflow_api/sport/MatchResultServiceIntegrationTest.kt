@@ -2,6 +2,8 @@ package com.eventflow.eventflow_api.sport
 
 import com.eventflow.eventflow_api.auth.domain.User
 import com.eventflow.eventflow_api.auth.infrastructure.persistence.UserRepository
+import com.eventflow.eventflow_api.agenda.application.AgendaRequest
+import com.eventflow.eventflow_api.agenda.application.AgendaService
 import com.eventflow.eventflow_api.event.application.ConfigureModuleRequest
 import com.eventflow.eventflow_api.event.application.CreateEventRequest
 import com.eventflow.eventflow_api.event.application.EventService
@@ -24,6 +26,7 @@ import java.util.UUID
 @SpringBootTest class MatchResultServiceIntegrationTest {
     @Autowired lateinit var events:EventService
     @Autowired lateinit var modules:ModuleDataService
+    @Autowired lateinit var agenda:AgendaService
     @Autowired lateinit var results:MatchResultService
     @Autowired lateinit var users:UserRepository
     @Autowired lateinit var catalog:ModuleCatalogRepository
@@ -32,15 +35,23 @@ import java.util.UUID
         val owner=requireNotNull(users.save(User(name="Owner",email="sport-${UUID.randomUUID()}@example.com",passwordHash="unused")).id)
         val eventId=events.create(owner,CreateEventRequest("Tournament","CUSTOM",Instant.now().plusSeconds(3600))).id
         catalog.save(ModuleCatalog("SPT","Sports","Guest","Matches"))
+        catalog.save(ModuleCatalog("CAL","Agenda","Guest","Agenda"))
+        events.configureModule(owner,eventId,"CAL",ConfigureModuleRequest())
         events.configureModule(owner,eventId,"SPT",ConfigureModuleRequest())
-        val teams=List(4){modules.create(owner,eventId,"SPT","TEAM",ModuleRecordRequest(title="Team $it")).id}
-        val final=modules.create(owner,eventId,"SPT","MATCH",ModuleRecordRequest(title="Final",payload=mapOf("round" to 2)))
+        val teams=List(4){modules.create(owner,eventId,"SPT","TEAM",ModuleRecordRequest(title="Team $it",payload=mapOf("category" to "Open"))).id}
+        assertThrows(BadRequestException::class.java){modules.create(owner,eventId,"SPT","TEAM",ModuleRecordRequest(title="Uncategorized"))}
+        fun scheduled(name:String,offset:Long)=agenda.addAgenda(owner,eventId,AgendaRequest(name,startsAt=Instant.now().plusSeconds(offset),endsAt=Instant.now().plusSeconds(offset+1800)))
+        val finalActivity=scheduled("Final",7200)
+        val semiAActivity=scheduled("Semi A",3600)
+        val semiBActivity=scheduled("Semi B",5400)
+        val final=modules.create(owner,eventId,"SPT","MATCH",ModuleRecordRequest(title="Final",payload=mapOf("round" to 2,"category" to "Open","agendaItemId" to finalActivity.id.toString())))
         val semiA=modules.create(owner,eventId,"SPT","MATCH",ModuleRecordRequest(title="Semi A",payload=mapOf(
-            "round" to 1,"participantAId" to teams[0].toString(),"participantBId" to teams[1].toString(),
+            "round" to 1,"category" to "Open","agendaItemId" to semiAActivity.id.toString(),"participantAId" to teams[0].toString(),"participantBId" to teams[1].toString(),
             "nextMatchId" to final.id.toString(),"nextSlot" to "A")))
         val semiB=modules.create(owner,eventId,"SPT","MATCH",ModuleRecordRequest(title="Semi B",payload=mapOf(
-            "round" to 1,"participantAId" to teams[2].toString(),"participantBId" to teams[3].toString(),
+            "round" to 1,"category" to "Open","agendaItemId" to semiBActivity.id.toString(),"participantAId" to teams[2].toString(),"participantBId" to teams[3].toString(),
             "nextMatchId" to final.id.toString(),"nextSlot" to "B")))
+        assertThrows(ConflictException::class.java){agenda.deleteAgenda(owner,eventId,semiAActivity.id!!)}
         assertThrows(BadRequestException::class.java){modules.update(owner,eventId,semiA.id,ModuleRecordUpdate(payload=mapOf("scoreA" to 99)))}
         assertEquals(teams[0],results.report(owner,eventId,semiA.id,MatchResultRequest(2,1)).winnerId)
         assertEquals(teams[3],results.report(owner,eventId,semiB.id,MatchResultRequest(0,3)).winnerId)

@@ -41,6 +41,7 @@ data class MatchResultResponse(val matchId:UUID,val scoreA:Int,val scoreB:Int,va
             if(slot !in setOf("A","B"))throw BadRequestException("Selecciona el lado del siguiente partido")
             val field=if(slot=="A")"participantAId" else "participantBId"
             val nextData=json.readMap(next.payload).toMutableMap()
+            if(nextData["category"]!=data["category"])throw BadRequestException("El siguiente partido debe pertenecer a la misma categoría")
             val round=data["round"]?.toString()?.toIntOrNull()?:1
             val nextRound=nextData["round"]?.toString()?.toIntOrNull()?:1
             if(nextRound<=round)throw BadRequestException("El siguiente partido debe ser de una ronda posterior")
