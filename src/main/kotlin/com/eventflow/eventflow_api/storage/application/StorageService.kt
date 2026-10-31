@@ -75,12 +75,11 @@ class StorageService(
             ?: throw ConflictException("La carga directa al bucket no está disponible")
         val now = Instant.now()
         val expiresAt = now.plusSeconds(600)
-        val id = UUID.randomUUID()
-        val path = "$eventId/$id-${prepared.fileName}"
+        val objectId = UUID.randomUUID()
+        val path = "$eventId/$objectId-${prepared.fileName}"
         val moderation = if (prepared.module == "GAL" && !prepared.manager && eventService.moderationRequired(eventId, prepared.module))
             FileModerationStatus.PENDING else FileModerationStatus.ACTIVE
-        files.save(FileAsset(
-            id = id,
+        val pendingFile = files.save(FileAsset(
             eventId = eventId,
             uploaderUserId = userId,
             moduleCode = prepared.module,
@@ -94,7 +93,7 @@ class StorageService(
             active = false,
         ))
         val url = storage.createUploadUrl(path, prepared.contentType, Duration.ofSeconds(600))
-        return DirectUploadResponse(id, url, mapOf("Content-Type" to prepared.contentType), expiresAt)
+        return DirectUploadResponse(requireNotNull(pendingFile.id), url, mapOf("Content-Type" to prepared.contentType), expiresAt)
     }
 
     @Transactional
