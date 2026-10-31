@@ -36,7 +36,7 @@ class SecurityConfig(private val jwtFilter: JwtAuthenticationFilter, private val
                     .accessDeniedHandler { request, response, _ -> writeError(response, 403, "FORBIDDEN", "No tienes permiso para esta operación", request.requestURI) }
             }
             .authorizeHttpRequests {
-                it.requestMatchers("/ws", "/ws/**", "/swagger-ui", "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/actuator/health").permitAll()
+                it.requestMatchers("/ws", "/ws/**", "/swagger-ui", "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/actuator/health", "/actuator/health/**").permitAll()
                     .requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/refresh", "/api/auth/verify-email", "/api/auth/resend-verification", "/api/auth/forgot-password", "/api/auth/reset-password", "/api/auth/google", "/api/auth/confirm-email-change").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/invitations/access/**").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/public/events", "/api/public/events/*").permitAll()
