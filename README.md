@@ -41,7 +41,7 @@ Los requisitos de eventos públicos y entradas con compra simulada están en [do
 
 - Correo: variables estándar `SPRING_MAIL_*`. Si no existe proveedor, la cuenta y el token se crean, pero no se intenta un envío.
 - Google: `GOOGLE_CLIENT_ID`. El backend valida el ID token directamente contra Google y comprueba audiencia y correo verificado.
-- Archivos: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` y `SUPABASE_BUCKET`. Los objetos nunca exponen la service key; se descargan mediante un endpoint autenticado que valida acceso al evento.
+- Archivos: Supabase Storage (`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_BUCKET`) o Neon Object Storage (`APP_STORAGE_PROVIDER=neon`, `APP_STORAGE_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION`). Los objetos nunca exponen las credenciales del proveedor; se descargan mediante un endpoint autenticado que valida acceso al evento.
 - Administración inicial: registra y verifica una cuenta, define su correo en `BOOTSTRAP_ADMIN_EMAIL` y reinicia una vez para asignarle `ADMIN`.
 - Encuestas anónimas: configura una clave estable en `SURVEY_ANONYMITY_KEY`. Si se omite, se usa `JWT_SECRET`. Cambiarla impide reconocer respuestas previas en encuestas aún activas.
 - `AUTH_EXPOSE_TOKENS=true` devuelve tokens de verificación/recuperación únicamente para desarrollo y pruebas. Debe permanecer desactivado en producción.

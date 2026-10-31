@@ -7,3 +7,5 @@ Para permitir aportes de asistentes, habilita el módulo `GAL` con `configuratio
 `GET /api/events/{eventId}/files?module=GAL` lista archivos visibles, con `moderationStatus`, `official` y `downloadUrl`. `GET /files/{fileId}` descarga el contenido con autenticación y permisos del evento. `DELETE /files/{fileId}` retira un archivo. Para galería oficial, el organizador sube con `official=true` después de finalizar el evento; el backend rechaza esa marca antes de `FINISHED` o fuera de `GAL`. El frontend puede separar las fotos oficiales filtrando `official`.
 
 No uses directamente la ruta del objeto en el proveedor de almacenamiento; usa siempre `downloadUrl`, que comprueba invitación, módulo, moderación y destinatario.
+
+El backend admite Supabase Storage y Neon Object Storage S3. Para Neon, configura `APP_STORAGE_PROVIDER=neon`, `APP_STORAGE_BUCKET=uploads`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3` y `AWS_REGION`; conserva el bucket privado para que todo acceso siga pasando por la API.

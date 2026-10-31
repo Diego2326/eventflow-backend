@@ -23,14 +23,15 @@ Flyway permanece deshabilitado al iniciar la API y Hibernate valida el esquema e
 ## Integraciones opcionales
 
 - `GOOGLE_CLIENT_ID` o `GOOGLE_CLIENT_IDS` para Google Sign-In.
-- `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` y `SUPABASE_BUCKET` para archivos.
+- Para Supabase Storage: `APP_STORAGE_PROVIDER=supabase` (predeterminado), `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` y `SUPABASE_BUCKET`.
+- Para Neon Object Storage: `APP_STORAGE_PROVIDER=neon`, `APP_STORAGE_BUCKET=uploads`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3` y `AWS_REGION`.
 - `EXPO_PUSH_ACCESS_TOKEN` para entrega push autenticada de Expo.
 - `WEBSOCKET_ALLOWED_ORIGINS` con los orígenes HTTPS permitidos si se conecta un cliente web.
 - `FRONTEND_URL` para enlaces de verificación y recuperación.
 
 Guarda contraseñas, claves y tokens en Secret Manager y enlázalos al servicio como variables de entorno. No los incluyas en la imagen ni en el repositorio.
 
-Para la galería, crea un bucket privado en Supabase. Si no defines `SUPABASE_BUCKET`, el backend busca el bucket `eventflow`. Las subidas y descargas pasan por la API y se autorizan por invitación, módulo, moderación y propietario; la app no necesita acceso directo al bucket. Si esos secretos no están cargados en Cloud Run, el resto del servicio puede funcionar, pero las cargas responderán que el almacenamiento no está configurado.
+Para la galería, crea un bucket privado en el proveedor seleccionado. Supabase usa `eventflow` como bucket predeterminado; Neon usa el valor de `APP_STORAGE_BUCKET` (por ejemplo `uploads`). En Neon configura el endpoint S3 y las credenciales de la misma rama, más acceso path-style. Las subidas y descargas pasan por la API y se autorizan por invitación, módulo, moderación y propietario; la app no necesita acceso directo al bucket. Si faltan variables, el resto del servicio puede funcionar, pero las cargas no.
 
 ## URLs de comprobación
 

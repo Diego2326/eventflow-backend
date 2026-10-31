@@ -3,11 +3,13 @@ package com.eventflow.eventflow_api.storage.infrastructure.storage
 import com.eventflow.eventflow_api.storage.application.ObjectStorage
 
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClient
 
 @Component
+@ConditionalOnProperty(prefix = "app.storage", name = ["provider"], havingValue = "supabase", matchIfMissing = true)
 class SupabaseObjectStorage(
     @Value("\${app.storage.url:}") private val url: String,
     @Value("\${app.storage.service-key:}") private val key: String,
