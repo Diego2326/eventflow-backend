@@ -63,7 +63,10 @@ Sube archivos al almacenamiento de objetos, conserva metadatos en PostgreSQL y e
 | Método | Ruta | Qué hace | Consulta | Cuerpo | Respuesta | Acceso |
 |---|---|---|---|---|---|---|
 | GET | `/api/events/{eventId}/files` | Listar | `module` | - | 200 Lista de FileResponse | JWT + permiso |
-| POST | `/api/events/{eventId}/files` | Subir | `module`, `recipientUserId`, `official` | multipart/form-data: object | 201 FileResponse | JWT + permiso |
+| POST | `/api/events/{eventId}/files/upload-url` | Autorizar carga directa a Neon (fotos GAL) | - | `module`, `fileName`, `contentType`, `sizeBytes`, `official` | 201 `fileId`, `uploadUrl`, `headers`, `expiresAt` | JWT + permiso |
+| POST | `/api/events/{eventId}/files/{id}/complete-upload` | Verificar y activar carga directa | - | - | 200 FileResponse | JWT + dueño o permiso FILES |
+| DELETE | `/api/events/{eventId}/files/{id}/upload` | Cancelar carga incompleta | - | - | 204 | JWT + dueño |
+| POST | `/api/events/{eventId}/files` | Subir archivos RSC/SES/EXH | `module`, `recipientUserId`, `official` | multipart/form-data: object | 201 FileResponse | JWT + permiso |
 | DELETE | `/api/events/{eventId}/files/{id}` | Retirar | - | - | 204 | JWT + permiso |
 | GET | `/api/events/{eventId}/files/{id}` | Descargar | - | - | 200 string | JWT + permiso |
 | PATCH | `/api/events/{eventId}/files/{id}/moderation` | Moderar | - | ModerationRequest: `status` | 200 FileResponse | JWT + permiso |
