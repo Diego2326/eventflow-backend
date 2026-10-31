@@ -114,6 +114,12 @@ class AuthService(
                 throw UnauthorizedException("La cuenta no está activa")
             if (user.googleSubject != null && user.googleSubject != subject) throw ConflictException("El correo ya está vinculado a otra cuenta Google")
             user.googleSubject = subject
+            if (user.phoneNumber.isNullOrBlank()) {
+                request.phoneNumber?.trim()?.takeIf { it.isNotBlank() && it.length <= 32 }?.let {
+                    user.phoneNumber = it
+                    request.phonePrefixId?.let { prefix -> user.phonePrefixId = prefix }
+                }
+            }
             if (user.status == UserStatus.PENDING_VERIFICATION) { user.status = UserStatus.ACTIVE; user.emailVerifiedAt = Instant.now() }
         }
         return createSession(user, userAgent, ip)

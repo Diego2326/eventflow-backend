@@ -2,6 +2,8 @@
 
 Fuente: `EventFlow_DERCAS_v2_0.pdf` proporcionado por el equipo (40 páginas, 116 requisitos funcionales). Esta revisión compara **el backend de este repositorio** con los criterios del documento. Una API existente no demuestra por sí sola que la app web o móvil esté terminada.
 
+La brecha del cliente móvil está detallada en [DERCAS_MOBILE_GAP_REVIEW.md](DERCAS_MOBILE_GAP_REVIEW.md).
+
 ## Resultado por módulo
 
 | Módulo | Requisitos | Backend disponible | Pendiente fuera del backend o de configuración |

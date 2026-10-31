@@ -5,12 +5,14 @@ SELECT version,script,checksum,success FROM public.flyway_schema_history ORDER B
 DO $$
 DECLARE role_name text; item record;
 BEGIN
- IF (SELECT count(*) FROM public.flyway_schema_history)<>26 OR EXISTS(SELECT FROM public.flyway_schema_history WHERE NOT success) THEN RAISE EXCEPTION 'Incomplete migration history'; END IF;
+ IF (SELECT count(*) FROM public.flyway_schema_history)<>27 OR EXISTS(SELECT FROM public.flyway_schema_history WHERE NOT success) THEN RAISE EXCEPTION 'Incomplete migration history'; END IF;
  IF NOT EXISTS(SELECT FROM public.flyway_schema_history WHERE version='8' AND checksum=1426551133)
  OR NOT EXISTS(SELECT FROM public.flyway_schema_history WHERE version='9' AND checksum=-58182200) THEN RAISE EXCEPTION 'Not the safe V8/V9 line'; END IF;
  IF NOT EXISTS(SELECT FROM public.flyway_schema_history WHERE version='22' AND checksum=-1549629595) THEN RAISE EXCEPTION 'Missing safe Expo device migration'; END IF;
  IF NOT EXISTS(SELECT FROM public.flyway_schema_history WHERE version='23' AND checksum=-996366283) THEN RAISE EXCEPTION 'Missing safe notification read migration'; END IF;
  IF NOT EXISTS(SELECT FROM public.flyway_schema_history WHERE version='24' AND checksum=-2076696153) OR NOT EXISTS(SELECT FROM public.flyway_schema_history WHERE version='25' AND checksum=8311463) OR NOT EXISTS(SELECT FROM public.flyway_schema_history WHERE version='26' AND checksum=-1906531511) THEN RAISE EXCEPTION 'Missing EventFlow REST migrations'; END IF;
+ IF NOT EXISTS(SELECT FROM public.flyway_schema_history WHERE version='27' AND checksum=46441340)
+ OR NOT EXISTS(SELECT FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='user_terms_accepted_at') THEN RAISE EXCEPTION 'Missing Google terms acceptance migration'; END IF;
  IF EXISTS(SELECT FROM public.user_role WHERE role='ADMIN') THEN RAISE EXCEPTION 'Unexpected ADMIN before explicit provisioning'; END IF;
  IF EXISTS(SELECT FROM public.users WHERE user_id IN ('11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','33333333-3333-4333-8333-333333333333') OR lower(user_email) IN ('demo.organizador@eventflow.gt','demo.invitada@eventflow.gt','demo.proveedor@eventflow.gt')) THEN RAISE EXCEPTION 'Demo account detected'; END IF;
  IF has_table_privilege('eventflow_runtime','public.flyway_schema_history','SELECT,INSERT,UPDATE,DELETE,TRUNCATE') OR has_schema_privilege('eventflow_runtime','public','CREATE') OR has_database_privilege('eventflow_runtime',current_database(),'CREATE') THEN RAISE EXCEPTION 'Runtime administrative access'; END IF;

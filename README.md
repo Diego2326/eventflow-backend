@@ -30,6 +30,8 @@ openssl rand -base64 32
 
 La API queda en `http://localhost:5080/api`. La raíz (`http://localhost:5080/`) redirige a Swagger UI.
 
+La imagen Docker y las variables requeridas para Cloud Run están descritas en [docs/cloud-run-deployment.md](docs/cloud-run-deployment.md).
+
 La guía de integración del frontend está organizada por módulo en [docs/frontend/README.md](docs/frontend/README.md).
 La lista completa de rutas, cuerpos, respuestas y reglas de acceso está en [docs/API_ENDPOINTS.md](docs/API_ENDPOINTS.md).
 

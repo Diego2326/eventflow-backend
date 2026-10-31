@@ -63,7 +63,7 @@ class LocalMigrationRehearsal {
             }
             var initial=flyway("4");initial.validate();System.out.println("V1-V4 validation=OK; originals=2");
             stage="migrations";
-            for(int version=5;version<=26;version++) {
+            for(int version=5;version<=27;version++) {
                 stage="V"+version;
                 var result=flyway(Integer.toString(version)).migrate();
                 String line="V"+version+" success="+result.success+" executed="+result.migrationsExecuted;
@@ -78,7 +78,7 @@ class LocalMigrationRehearsal {
                 if(version==7||version==11)try(var db=connection();var st=db.createStatement();var rs=st.executeQuery("SELECT indexname FROM pg_indexes WHERE schemaname='public' AND indexname LIKE 'ux_module_action%' ORDER BY indexname")){while(rs.next())System.out.println("V"+version+" index="+rs.getString(1));}
             }
             stage="post_migration";
-            flyway("26").validate();
+            flyway("27").validate();
             try(var db=connection()) {
                 require(original.equals(originalFingerprint(db,ids)));System.out.println("original_users_fields_preserved=true");
                 var st=db.createStatement();
@@ -133,7 +133,7 @@ class LocalMigrationRehearsal {
             int[] testCounts=copyTestReports(root.resolve("postgresql-test-results"));
             System.out.println("postgresql_test_exit="+testExit+" tests="+testCounts[0]+" failures="+testCounts[1]+" errors="+testCounts[2]+" skipped="+testCounts[3]);
             Files.writeString(root.resolve("postgresql-test-summary.txt"),"tests="+testCounts[0]+" failures="+testCounts[1]+" errors="+testCounts[2]+" skipped="+testCounts[3]+" exit="+testExit+"\n");
-            Files.writeString(root.resolve("result.txt"),"migrations=V1-V26_VALID\noriginal_users_preserved=true\nhibernate_validate=OK\npostgresql_test_exit="+testExit+"\npostgresql_tests="+testCounts[0]+"\npostgresql_failures="+(testCounts[1]+testCounts[2])+"\npostgresql_skipped="+testCounts[3]+"\n");
+            Files.writeString(root.resolve("result.txt"),"migrations=V1-V27_VALID\noriginal_users_preserved=true\nhibernate_validate=OK\npostgresql_test_exit="+testExit+"\npostgresql_tests="+testCounts[0]+"\npostgresql_failures="+(testCounts[1]+testCounts[2])+"\npostgresql_skipped="+testCounts[3]+"\n");
             if(testExit!=0||testCounts[0]==0||testCounts[1]!=0||testCounts[2]!=0||testCounts[3]!=0)exit=1;
         } catch(Exception ex) {
             exit=1;Throwable cause=ex;while(cause.getCause()!=null)cause=cause.getCause();
