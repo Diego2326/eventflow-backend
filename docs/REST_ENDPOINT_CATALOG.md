@@ -176,6 +176,11 @@ Derived from controller mappings in `src/main/kotlin` for this backend revision.
 - `POST /api/events/{eventId}/notifications/{id}/read`
 - `POST /api/events/{eventId}/notifications/read-all`
 
+## PersonalNotificationController
+
+- `GET /api/profile/notifications`
+- `POST /api/profile/notifications/{id}/read`
+
 ## PushDeviceController
 
 - `POST /api/profile/push-devices`

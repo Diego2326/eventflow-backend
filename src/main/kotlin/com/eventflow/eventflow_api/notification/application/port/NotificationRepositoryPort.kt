@@ -9,4 +9,5 @@ interface NotificationRepositoryPort : CrudPort<NotificationEntity, UUID> {
     fun findAllByEventIdAndActiveTrueOrderByCreatedAtDesc(eventId: UUID): List<NotificationEntity>
     fun existsByDedupeKey(dedupeKey: String): Boolean
     fun findAllByIdIn(ids: Collection<UUID>): List<NotificationEntity>
+    fun findAllByRecipientUserIdAndActiveTrueOrderByCreatedAtDesc(userId: UUID): List<NotificationEntity>
 }

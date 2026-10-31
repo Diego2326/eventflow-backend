@@ -30,6 +30,10 @@ class SpringMailAccountMessageSender(
     }
 
     override fun sendLink(to: String, subject: String, link: String) {
+        if (mailHost.isBlank()) {
+            if (mailRequired) throw IllegalStateException("Email delivery is not configured")
+            return
+        }
         val sender = mailSenderProvider.ifAvailable
         if (sender == null) {
             if (mailRequired) throw IllegalStateException("Email delivery is not configured")

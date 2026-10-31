@@ -8,7 +8,7 @@
 | `POST /api/auth/verify-email` | `{ "token": "..." }` | Activa correo. |
 | `POST /api/auth/resend-verification` | `{ "email": "..." }` | Reenvía enlace. |
 | `POST /api/auth/login` | `{ "identifier": "correo o teléfono", "password": "..." }` | Devuelve `AuthResponse`. |
-| `POST /api/auth/google` | `{ "idToken": "..." }` | Inicia sesión con token de Google. |
+| `POST /api/auth/google` | `{ "idToken": "..." }` para cuenta existente; para cuenta nueva agrega `phoneNumber`, `phonePrefixId` opcional y `acceptedTerms: true` | Verifica el ID token. Una cuenta nueva se crea solo después de completar el teléfono y aceptar términos. |
 | `POST /api/auth/refresh` | `{ "refreshToken": "..." }` | Rota el refresh token; guarda el nuevo. |
 
 `AuthResponse` contiene `accessToken`, `refreshToken`, `tokenType`, `expiresIn`, `userId`, `name`, `email` y `roles`. Guarda el refresh token en almacenamiento protegido de la plataforma; no lo incluyas en URLs. `POST /api/auth/logout` cierra la sesión actual y `/logout-all` cierra todas.

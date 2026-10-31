@@ -63,6 +63,9 @@ class User(
     @Column(name = "user_google_subject", unique = true)
     var googleSubject: String? = null,
 
+    @Column(name = "user_terms_accepted_at")
+    var termsAcceptedAt: Instant? = null,
+
     @Column(name = "user_deletion_requested_at")
     var deletionRequestedAt: Instant? = null,
 

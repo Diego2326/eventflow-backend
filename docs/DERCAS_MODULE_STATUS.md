@@ -1,6 +1,6 @@
 # Estado de módulos DERCAS
 
-No hay un documento independiente de requisitos DERCAS en el repositorio; la clasificación se basa en los controladores y guías `docs/frontend/*.md` disponibles en esta versión. “Completo” significa que existe el flujo REST documentado con persistencia y autorización del backend; no implica integración comprobada con proveedores externos o con los clientes web/móvil.
+Este inventario preliminar se basó en los controladores y guías `docs/frontend/*.md`. La comparación posterior con el DERCAS v2.0 completo (116 requisitos funcionales) está en [DERCAS_GAP_REVIEW.md](DERCAS_GAP_REVIEW.md). “Completo” aquí significa que existe el flujo REST documentado con persistencia y autorización del backend; no implica integración comprobada con proveedores externos o con los clientes web/móvil.
 
 | Módulo | Estado | Cobertura comprobable | Limitación conocida |
 |---|---|---|---|

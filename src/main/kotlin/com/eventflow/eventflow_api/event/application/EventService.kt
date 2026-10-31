@@ -114,7 +114,9 @@ class EventService(
         }
         if(!r.enabled) {
             val dependents=dependencies.findAll().filter{it.requiredModuleCode==code}.map{it.moduleCode}
-            if(eventModules.findAllByEventIdOrderByDisplayOrder(eventId).any{it.enabled && it.moduleCode in dependents}) throw ConflictException("Otros módulos activos dependen de $code")
+            val activeDependents=eventModules.findAllByEventIdOrderByDisplayOrder(eventId)
+                .filter{it.enabled && it.moduleCode in dependents}.map{it.moduleCode}.distinct().sorted()
+            if(activeDependents.isNotEmpty()) throw ConflictException("Los módulos activos ${activeDependents.joinToString(", ")} dependen de $code")
         }
         val em=eventModules.findById(EventModuleId(eventId,code)).orElse(EventModule(eventId,code))
         em.enabled=r.enabled; em.displayOrder=r.order; em.featured=r.featured; em.configuration=mapper.write(r.configuration); em.updatedAt=Instant.now(); eventModules.save(em)
@@ -194,6 +196,10 @@ class EventService(
         if(code=="AST")config["categories"]?.let { value ->
             if(value !is List<*>||value.any{it !is String||it.isBlank()})throw BadRequestException("categories debe contener categorías válidas")
         }
+        if(code=="MSG")config["guestChannels"]?.let { value ->
+            if(value !is List<*> || value.any { it !is String || !it.matches(Regex("[A-Z][A-Z0-9_]{0,29}")) } || value.size != value.toSet().size)
+                throw BadRequestException("guestChannels debe contener nombres de canal únicos en mayúsculas")
+        }
         if(code=="INT"){
             if(config["guestbookModeration"]!=null&&config["guestbookModeration"] !is Boolean)
                 throw BadRequestException("guestbookModeration debe ser verdadero o falso")
@@ -205,6 +211,12 @@ class EventService(
     fun guestUploadsAllowed(eventId:UUID,module:String):Boolean {
         requireModule(eventId,module)
         return eventModules.findById(EventModuleId(eventId,module)).map{readMap(it.configuration)["allowGuestUploads"]==true}.orElse(false)
+    }
+    fun guestMessageChannelOpen(eventId:UUID,channel:String):Boolean {
+        requireModule(eventId,"MSG")
+        val configuration=eventModules.findById(EventModuleId(eventId,"MSG")).map{readMap(it.configuration)}.orElse(emptyMap())
+        val channels=(configuration["guestChannels"] as? List<*>)?.filterIsInstance<String>()?:listOf("STAFF")
+        return channel.uppercase() in channels
     }
     fun guestModuleVisible(eventId:UUID,module:String):Boolean {
         requireModule(eventId,module)

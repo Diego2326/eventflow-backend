@@ -27,6 +27,16 @@ class SpringMailAccountMessageSenderTest {
     }
 
     @Test
+    fun `optional mail with blank host does not attempt SMTP`() {
+        val provider = Mockito.mock(ObjectProvider::class.java) as ObjectProvider<JavaMailSender>
+        val mailer = Mockito.mock(JavaMailSender::class.java)
+        Mockito.`when`(provider.ifAvailable).thenReturn(mailer)
+        val sender = SpringMailAccountMessageSender(provider, false, "", "", false, "")
+        sender.sendLink("member@example.com", "Verify", "eventflow://auth/verify-email?token=demo")
+        Mockito.verifyNoInteractions(mailer)
+    }
+
+    @Test
     fun `protected profiles reject development tokens even when explicitly enabled`() {
         val provider = Mockito.mock(ObjectProvider::class.java) as ObjectProvider<JavaMailSender>
         val sender = SpringMailAccountMessageSender(provider, true, "smtp.example", "no-reply@example.com", true, "supabase")

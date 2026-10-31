@@ -31,7 +31,12 @@ data class TokenRequest(val token: String)
 data class ForgotPasswordRequest(val email: String)
 data class ResetPasswordRequest(val token: String, val password: String)
 data class ChangePasswordRequest(val currentPassword: String, val newPassword: String, val closeAllSessions: Boolean = false)
-data class GoogleLoginRequest(val idToken: String)
+data class GoogleLoginRequest(
+    val idToken: String,
+    val phonePrefixId: Int? = null,
+    val phoneNumber: String? = null,
+    val acceptedTerms: Boolean = false
+)
 data class EmailChangeRequest(val email: String)
 
 @Service
@@ -96,9 +101,14 @@ class AuthService(
         val email = identity.email
         var user = userRepository.findByGoogleSubject(subject) ?: userRepository.findByEmail(email)
         if (user == null) {
+            val phone = request.phoneNumber?.trim()
+            if (phone.isNullOrBlank() || phone.length > 32) throw BadRequestException("Completa un teléfono válido para crear la cuenta")
+            if (!request.acceptedTerms) throw BadRequestException("Debes aceptar los términos para crear la cuenta")
             user = userRepository.save(User(name = identity.name ?: email.substringBefore('@'), email = email,
+                phonePrefixId = request.phonePrefixId, phoneNumber = phone,
                 passwordHash = requireNotNull(passwordEncoder.encode(randomToken())), status = UserStatus.ACTIVE,
-                emailVerifiedAt = Instant.now(), googleSubject = subject, profilePictureUrl = identity.pictureUrl))
+                emailVerifiedAt = Instant.now(), googleSubject = subject, profilePictureUrl = identity.pictureUrl,
+                termsAcceptedAt = Instant.now()))
         } else {
             if (user.status in setOf(UserStatus.DISABLED, UserStatus.DELETED))
                 throw UnauthorizedException("La cuenta no está activa")

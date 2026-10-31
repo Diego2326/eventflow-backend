@@ -41,10 +41,10 @@ $env:Path = "$env:JAVA_HOME\bin;$env:Path"
 
 Before migrating an existing database, inspect its schemas and
 `flyway_schema_history` with an authorized account. The current main configuration
-uses `baseline-on-migrate=true` with baseline version 0. Do not apply that baseline
-blindly to an existing schema. Do not repair history, edit applied migrations,
+disables Flyway and automatic baselining. Do not baseline an existing schema
+blindly. Do not repair history, edit applied migrations,
 drop schemas, or erase existing data. On a dedicated empty database, Flyway should
-apply V1 through V23 after explicit migration enablement; Hibernate then validates
+apply V1 through V27 after explicit migration enablement; Hibernate then validates
 the schema (`ddl-auto=validate`). The local profile leaves Flyway disabled, so an
 empty database will fail Hibernate validation until that separate migration step.
 This has not yet been verified against the local PostgreSQL instance.

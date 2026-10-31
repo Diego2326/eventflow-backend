@@ -10,4 +10,5 @@ interface NotificationRepository : JpaRepository<NotificationEntity, UUID>, Noti
     override fun findAllByEventIdAndActiveTrueOrderByCreatedAtDesc(eventId: UUID): List<NotificationEntity>
     override fun existsByDedupeKey(dedupeKey: String): Boolean
     override fun findAllByIdIn(ids: Collection<UUID>): List<NotificationEntity>
+    override fun findAllByRecipientUserIdAndActiveTrueOrderByCreatedAtDesc(userId: UUID): List<NotificationEntity>
 }

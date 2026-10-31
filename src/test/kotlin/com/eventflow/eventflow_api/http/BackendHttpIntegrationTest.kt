@@ -162,6 +162,8 @@ class BackendHttpIntegrationTest {
         assertTrue(qrPayload.startsWith("eventflow:invite:"))
         val guest = registeredUser("guest")
         val guestHeaders = bearer(guest.path("accessToken").asString())
+        assertEquals(HttpStatus.UNAUTHORIZED,exchange("/api/profile/notifications",HttpMethod.GET).statusCode)
+        assertEquals(HttpStatus.OK,exchange("/api/profile/notifications",HttpMethod.GET,headers=guestHeaders).statusCode)
         val guestId=UUID.fromString(guest.path("userId").asString())
         assertEquals(HttpStatus.OK, post("/api/invitations/access/$invitationToken/link", emptyMap<String, Any>(), guestHeaders).statusCode)
         val anonymousPrivacy=exchange("/api/profile/privacy",HttpMethod.GET)
@@ -180,6 +182,16 @@ class BackendHttpIntegrationTest {
         assertEquals(HttpStatus.OK,hidden.statusCode)
         assertEquals(HttpStatus.NOT_FOUND,exchange("/api/events/$eventId/networking/profiles/$profileId",HttpMethod.GET,headers=manager).statusCode)
         assertEquals(HttpStatus.CONFLICT,exchange("/api/events/$eventId/networking/qr",HttpMethod.GET,headers=guestHeaders).statusCode)
+
+        val msgModule="/api/events/$eventId/modules/MSG"
+        assertEquals(HttpStatus.BAD_REQUEST,exchange(msgModule,HttpMethod.PUT,
+            mapOf("enabled" to true,"configuration" to mapOf("guestChannels" to listOf("bad channel"))),manager).statusCode)
+        assertEquals(HttpStatus.OK,exchange(msgModule,HttpMethod.PUT,
+            mapOf("enabled" to true,"configuration" to mapOf("guestVisible" to true,"guestChannels" to emptyList<String>())),manager).statusCode)
+        assertEquals(HttpStatus.CONFLICT,post("/api/events/$eventId/messages",mapOf("channel" to "STAFF","body" to "Closed channel"),guestHeaders).statusCode)
+        assertEquals(HttpStatus.OK,exchange(msgModule,HttpMethod.PUT,
+            mapOf("enabled" to true,"configuration" to mapOf("guestVisible" to true,"guestChannels" to listOf("STAFF","INFO"))),manager).statusCode)
+        assertEquals(HttpStatus.CREATED,post("/api/events/$eventId/messages",mapOf("channel" to "INFO","body" to "Information request"),guestHeaders).statusCode)
 
         val sentPrivateMessage=post("/api/events/$eventId/messages",mapOf("channel" to "STAFF","body" to "Private thread message","recipientUserId" to guestId),manager)
         assertEquals(HttpStatus.CREATED,sentPrivateMessage.statusCode,sentPrivateMessage.rawBody)
@@ -258,7 +270,7 @@ class BackendHttpIntegrationTest {
         assertTrue(docs.rawBody.contains("/api/auth/refresh"))
         val home = exchange("/", HttpMethod.GET)
         assertEquals(HttpStatus.FOUND, home.statusCode)
-        assertEquals("/swagger-ui", URI(home.headers["location"]).path)
+        assertEquals("/swagger-ui", home.headers["location"])
         assertEquals(HttpStatus.OK, exchange("/swagger-ui/index.html", HttpMethod.GET).statusCode)
     }
 
@@ -364,23 +376,24 @@ class BackendHttpIntegrationTest {
     }
 
     @Test
-    fun `HTTP Google sign in links verified pending users and lets new users complete their profile`() {
+    fun `HTTP Google sign in requires completion and terms for new users`() {
         Mockito.`when`(googleVerifier.configured).thenReturn(true)
         val newEmail = "google-${UUID.randomUUID()}@example.com"
         Mockito.`when`(googleVerifier.verify("signed-new-id-token")).thenReturn(
             GoogleIdentity("google-subject-new", newEmail, "Google New User", null)
         )
-        val created = post("/api/auth/google", mapOf("idToken" to "signed-new-id-token"))
+        assertEquals(HttpStatus.BAD_REQUEST, post("/api/auth/google", mapOf("idToken" to "signed-new-id-token")).statusCode)
+        assertNull(users.findByEmail(newEmail))
+        assertEquals(HttpStatus.BAD_REQUEST, post("/api/auth/google", mapOf("idToken" to "signed-new-id-token", "phoneNumber" to "55551234")).statusCode)
+        assertNull(users.findByEmail(newEmail))
+        val created = post("/api/auth/google", mapOf("idToken" to "signed-new-id-token", "phoneNumber" to "55551234", "acceptedTerms" to true))
         assertEquals(HttpStatus.OK, created.statusCode, created.rawBody)
-        assertFalse(created.body!!.path("profileComplete").asBoolean())
+        assertTrue(created.body!!.path("profileComplete").asBoolean())
         val createdId = created.body!!.path("userId").asText()
+        assertNotNull(users.findByEmail(newEmail)?.termsAcceptedAt)
         val profileAuth = bearer(created.body!!.path("accessToken").asText())
         val profile = exchange("/api/profile", HttpMethod.GET, headers = profileAuth)
         assertEquals(createdId, profile.body!!.path("id").asText())
-        val completed = exchange("/api/profile", HttpMethod.PATCH,
-            mapOf("phoneNumber" to "55551234"), profileAuth)
-        assertEquals(HttpStatus.OK, completed.statusCode, completed.rawBody)
-        assertTrue(completed.body!!.path("profileComplete").asBoolean())
 
         Mockito.`when`(googleVerifier.verify("signed-existing-id-token")).thenReturn(
             GoogleIdentity("google-subject-new", newEmail, "Google New User", null)

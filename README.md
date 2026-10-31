@@ -31,6 +31,7 @@ openssl rand -base64 32
 La API queda en `http://localhost:5080/api`. La raíz (`http://localhost:5080/`) redirige a Swagger UI.
 
 La guía de integración del frontend está organizada por módulo en [docs/frontend/README.md](docs/frontend/README.md).
+La lista completa de rutas, cuerpos, respuestas y reglas de acceso está en [docs/API_ENDPOINTS.md](docs/API_ENDPOINTS.md).
 
 Los requisitos de eventos públicos y entradas con compra simulada están en [docs/requirements/public-events-ticketing.md](docs/requirements/public-events-ticketing.md), con la guía de API en [docs/frontend/public-events-ticketing.md](docs/frontend/public-events-ticketing.md).
 
@@ -148,4 +149,4 @@ El mapa admite `GET /api/events/{eventId}/module-data/map/search?q=...` y `/map/
 
 El comprobante `GET /api/reservations/{id}/payments/{paymentId}/receipt` incluye referencia, monto, fecha y el aviso explícito de que el pago es una simulación académica.
 
-Las pruebas usan H2 en modo PostgreSQL para cargar el contexto y validar el mapeo ORM sin depender de una base externa. En despliegue, Flyway ejecuta las migraciones PostgreSQL de `src/main/resources/db/migration`.
+Las pruebas habituales usan H2 en modo PostgreSQL. En despliegue, Flyway está desactivado durante el arranque: las migraciones PostgreSQL de `src/main/resources/db/migration` se validan y aplican como paso operativo antes de publicar una imagen que requiera tablas nuevas. Hibernate valida el esquema al iniciar.

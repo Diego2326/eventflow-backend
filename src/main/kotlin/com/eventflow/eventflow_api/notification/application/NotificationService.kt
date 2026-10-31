@@ -95,6 +95,16 @@ data class EventPushRequested(val eventId: UUID, val notificationId: UUID, val u
         val visible=notifications(userId,eventId).firstOrNull{it.id==id}?:throw com.eventflow.eventflow_api.shared.application.error.NotFoundException("Notificación no encontrada")
         return visible
     }
+    @Transactional(readOnly=true) fun personalNotifications(userId:UUID):List<NotificationEntity> =
+        notifications.findAllByRecipientUserIdAndActiveTrueOrderByCreatedAtDesc(userId).also { attachReadState(userId,it) }
+    @Transactional fun markPersonalRead(userId:UUID,id:UUID):NotificationEntity {
+        val notification=notifications.findById(id).orElseThrow{com.eventflow.eventflow_api.shared.application.error.NotFoundException("Notificación no encontrada")}
+        if(!notification.active || notification.recipientUserId!=userId)
+            throw com.eventflow.eventflow_api.shared.application.error.NotFoundException("Notificación no encontrada")
+        if(reads.findByUserIdAndNotificationId(userId,id)==null)reads.save(NotificationRead(userId=userId,notificationId=id))
+        notification.readAt=reads.findByUserIdAndNotificationId(userId,id)?.readAt
+        return notification
+    }
     @Transactional fun markRead(userId:UUID,eventId:UUID,id:UUID):NotificationEntity {
         val notification=notification(userId,eventId,id)
         if(reads.findByUserIdAndNotificationId(userId,id)==null)reads.save(NotificationRead(userId=userId,notificationId=id))

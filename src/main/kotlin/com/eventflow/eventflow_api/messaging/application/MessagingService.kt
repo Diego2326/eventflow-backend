@@ -9,6 +9,7 @@ import com.eventflow.eventflow_api.messaging.domain.ConversationMessage
 import com.eventflow.eventflow_api.messaging.domain.MessageReadReceipt
 import com.eventflow.eventflow_api.messaging.application.port.MessageReadReceiptPort
 import com.eventflow.eventflow_api.shared.application.error.BadRequestException
+import com.eventflow.eventflow_api.shared.application.error.ConflictException
 import com.eventflow.eventflow_api.shared.application.error.ForbiddenException
 import com.eventflow.eventflow_api.shared.application.error.NotFoundException
 import org.springframework.stereotype.Service
@@ -34,8 +35,9 @@ data class MarkMessagesReadResponse(val conversationId:String,val markedCount:In
             return messages.save(ConversationMessage(eventId=eventId,reservationId=r.reservationId,senderUserId=userId,recipientUserId=other,channel=r.channel.uppercase(),body=r.body))
         }
         eventService.requireVisibleModule(userId,eventId,"MSG")
+        if(!eventService.guestMessageChannelOpen(eventId,r.channel))throw ConflictException("El canal de atención está cerrado")
         val manager=try{eventService.owned(userId,eventId);true}catch(_:ForbiddenException){false}
-        if(!manager&&(r.channel.uppercase()!="STAFF"||r.recipientUserId!=null))throw ForbiddenException("Solo puedes contactar al personal")
+        if(!manager&&r.recipientUserId!=null)throw ForbiddenException("Solo puedes contactar al personal")
         if(manager&&r.recipientUserId!=null&&invitations.findAllByLinkedUserId(r.recipientUserId).none{it.eventId==eventId&&it.revokedAt==null})throw BadRequestException("El destinatario no pertenece al evento")
         return messages.save(ConversationMessage(eventId=eventId,senderUserId=userId,recipientUserId=r.recipientUserId,channel=r.channel.uppercase(),body=r.body))
     }

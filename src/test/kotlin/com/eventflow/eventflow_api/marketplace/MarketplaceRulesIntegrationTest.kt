@@ -12,9 +12,11 @@ import com.eventflow.eventflow_api.marketplace.application.PaymentRequest
 import com.eventflow.eventflow_api.marketplace.application.ReservationRequest
 import com.eventflow.eventflow_api.marketplace.application.ReviewRequest
 import com.eventflow.eventflow_api.marketplace.domain.OfferingType
+import com.eventflow.eventflow_api.notification.application.NotificationService
 import com.eventflow.eventflow_api.shared.application.error.BadRequestException
 import com.eventflow.eventflow_api.shared.application.error.ConflictException
 import com.eventflow.eventflow_api.shared.application.error.ForbiddenException
+import com.eventflow.eventflow_api.shared.application.error.NotFoundException
 
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
@@ -29,6 +31,27 @@ class MarketplaceRulesIntegrationTest {
     @Autowired lateinit var service: MarketplaceService
     @Autowired lateinit var events: EventService
     @Autowired lateinit var users: UserRepository
+    @Autowired lateinit var notifications: NotificationService
+
+    @Test fun `reservation decisions and cancellations notify only their parties`() {
+        val provider=user();val client=user();val outsider=user()
+        val event=events.create(client,CreateEventRequest("Avisos de reserva","CUSTOM",Instant.now().plusSeconds(3600))).id
+        val offering=requireNotNull(service.create(provider,OfferingRequest(OfferingType.SERVICE,"Servicio")).id)
+        val start=Instant.now().plusSeconds(7200)
+        val rejected=requireNotNull(service.reserve(client,ReservationRequest(event,offering,start,start.plusSeconds(3600))).id)
+        service.decide(provider,rejected,DecisionRequest(false))
+        val rejection=notifications.personalNotifications(client).first{it.title=="Reservación rechazada"&&it.eventId==event}
+        assertTrue(notifications.personalNotifications(outsider).none{it.id==rejection.id})
+        assertThrows(NotFoundException::class.java){notifications.markPersonalRead(outsider,requireNotNull(rejection.id))}
+        assertNotNull(notifications.markPersonalRead(client,requireNotNull(rejection.id)).readAt)
+
+        val later=start.plusSeconds(7200)
+        val accepted=requireNotNull(service.reserve(client,ReservationRequest(event,offering,later,later.plusSeconds(3600))).id)
+        service.decide(provider,accepted,DecisionRequest(true))
+        service.cancel(provider,accepted)
+        assertTrue(notifications.personalNotifications(client).any{it.title=="Reservación cancelada"&&it.eventId==event})
+        assertTrue(notifications.personalNotifications(provider).any{it.title=="Reservación cancelada"&&it.eventId==event})
+    }
 
     @Test fun `search is filtered and bounded, reservations honor unavailable ranges and payments need acceptance`() {
         val provider = user()
