@@ -19,3 +19,15 @@ El backend valida dependencias entre módulos. La configuración de `INT` admite
 ## Administración global
 
 Un `ADMIN` dispone de `/api/admin/users`, `/api/admin/role-requests`, `/api/admin/reports` y `PATCH /api/admin/modules/{code}`. El usuario puede presentar un reporte con `POST /api/reports`. Al desactivar globalmente un módulo, no se puede agregar a configuraciones nuevas. Las respuestas de moderación y cambios de rol quedan auditados.
+
+## Contratos REST prioritarios añadidos
+
+La revisión incorpora las rutas de plantillas, privacidad y lectura de mensajes detalladas en `FRONTEND_API_HANDOFF.md`. Rutas exactas:
+
+- `GET`, `POST` `/api/event-templates`
+- `GET`, `PUT`, `DELETE` `/api/event-templates/{templateId}`
+- `POST` `/api/event-templates/apply/{templateId}`
+- `GET`, `PUT` `/api/profile/privacy`
+- `POST` `/api/events/{eventId}/messages/conversations/{conversationId}/read?channel=...`
+- `GET` `/api/events/{eventId}/messages/conversations/{conversationId}/read-state?channel=...`
+Las listas globales `GET /api/admin/users`, `/events`, `/audit`, `/role-requests` y `/reports` aceptan `page` (base cero) y `size` (1–100; predeterminado 20 cuando se usa paginación). Con esos parámetros mantienen la respuesta JSON como arreglo y añaden encabezados `X-Page`, `X-Page-Size`, `X-Total-Count`, `X-Total-Pages` y `X-Has-Next`; el arreglo está ordenado por fecha descendente. Sin parámetros se conserva la respuesta y solo se añade `X-Total-Count`. Todas requieren rol ADMIN.

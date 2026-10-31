@@ -11,6 +11,7 @@ class AuthSettingsConfig {
     @Bean
     fun authSettings(
         @Value("\${app.frontend-url:http://localhost:8081}") frontendUrl: String,
-        @Value("\${app.auth.expose-tokens:false}") exposeTokens: Boolean
-    ) = AuthSettings(frontendUrl, exposeTokens)
+        @Value("\${app.auth.expose-tokens:false}") exposeTokens: Boolean,
+        @Value("\${app.auth.deep-link-base:eventflow://auth}") deepLinkBase: String
+    ) = AuthSettings(frontendUrl, exposeTokens, deepLinkBase.trimEnd('/'))
 }

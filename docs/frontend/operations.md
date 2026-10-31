@@ -17,3 +17,7 @@ Audiencias: `ALL`, `TABLE`, `SECTOR`, `USER` (con `recipientUserId`), `SESSION` 
 ## Mensajes
 
 `POST /api/events/{eventId}/messages` usa `{ "channel": "...", "body": "...", "recipientUserId": "<uuid>" }` o `reservationId` cuando corresponda. `GET /api/events/{eventId}/messages?channel=...` consulta la conversación autorizada. Lee la lista y permisos antes de mostrar el canal; el backend valida interlocutores y evento.
+
+## Lecturas de conversación
+
+`POST /api/events/{eventId}/messages/conversations/{conversationId}/read?channel=STAFF` registra como leídos los mensajes entrantes del usuario autenticado y responde `{ "conversationId":"...", "markedCount":1 }`. `GET .../{conversationId}/read-state?channel=STAFF` devuelve cada mensaje de la conversación y `readBy` con los recibos `{id,messageId,userId,readAt}`. Solo participantes autorizados pueden consultar o marcar. La repetición de POST es segura e idempotente.

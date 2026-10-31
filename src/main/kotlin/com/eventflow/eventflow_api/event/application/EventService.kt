@@ -49,6 +49,7 @@ data class DashboardResponse(val event: EventResponse, val activeModules: Int, v
     val pendingGuests: Int, val declinedGuests: Int, val checkedOut: Int, val remainingCapacity: Int,
     val ticketOrders: Int, val ticketPasses: Int, val ticketCheckedIn: Int, val ticketSimulatedGross: BigDecimal)
 data class CollaboratorRequest(val userId:UUID,val permissions:Set<String>)
+data class EventPermissionResponse(val eventId:UUID,val owner:Boolean,val permissions:Set<String>)
 
 @Service
 class EventService(
@@ -138,6 +139,20 @@ class EventService(
     }
     @Transactional fun addCollaborator(userId:UUID,eventId:UUID,r:CollaboratorRequest):EventCollaborator{ownerOnly(userId,eventId);if(r.userId==userId)throw BadRequestException("El propietario ya administra el evento");if(r.permissions.isEmpty()||r.permissions.any{it.isBlank()||',' in it})throw BadRequestException("Selecciona permisos válidos");return collaborators.save(EventCollaborator(eventId,r.userId,r.permissions.map{it.trim().uppercase()}.joinToString(",")))}
     @Transactional(readOnly=true) fun listCollaborators(userId:UUID,eventId:UUID):List<EventCollaborator>{ownerOnly(userId,eventId);return collaborators.findAllByEventId(eventId)}
+    @Transactional(readOnly=true) fun myPermissions(userId:UUID,eventId:UUID):EventPermissionResponse {
+        accessible(userId,eventId)
+        val event=events.findById(eventId).orElseThrow{NotFoundException("Evento no encontrado")}
+        if(event.ownerUserId==userId)return EventPermissionResponse(eventId,true,setOf("ALL"))
+        val collaborator=collaborators.findByEventIdAndUserId(eventId,userId)
+        return EventPermissionResponse(eventId,false,collaborator?.permissions?.split(',')?.map{it.trim().uppercase()}?.filter{it.isNotBlank()}?.toSet()?:setOf("GUEST"))
+    }
+    @Transactional fun updateCollaborator(userId:UUID,eventId:UUID,collaboratorId:UUID,r:CollaboratorRequest):EventCollaborator {
+        ownerOnly(userId,eventId)
+        if(userId==collaboratorId||r.permissions.isEmpty()||r.permissions.any{it.isBlank()||',' in it})throw BadRequestException("Selecciona permisos válidos")
+        val current=collaborators.findByEventIdAndUserId(eventId,collaboratorId)?:throw NotFoundException("Colaborador no encontrado")
+        current.permissions=r.permissions.map{it.trim().uppercase()}.joinToString(",")
+        return collaborators.save(current)
+    }
     @Transactional fun removeCollaborator(userId:UUID,eventId:UUID,collaboratorId:UUID){ownerOnly(userId,eventId);collaborators.deleteById(EventCollaboratorId(eventId,collaboratorId))}
     fun ownerOnly(userId:UUID,eventId:UUID):EventEntity {val e=events.findById(eventId).orElseThrow{NotFoundException("Evento no encontrado")};if(e.ownerUserId!=userId)throw ForbiddenException("Solo el propietario puede realizar esta operación");return e}
     fun owned(userId:UUID,eventId:UUID):EventEntity=authorized(userId,eventId,"ALL")

@@ -1,3 +1,3 @@
 package com.eventflow.eventflow_api.auth.application
 
-data class AuthSettings(val frontendUrl: String, val exposeTokens: Boolean)
+data class AuthSettings(val frontendUrl: String, val exposeTokens: Boolean, val deepLinkBase: String = "eventflow://auth")

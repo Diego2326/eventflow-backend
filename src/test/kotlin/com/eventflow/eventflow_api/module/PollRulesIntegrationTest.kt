@@ -22,12 +22,14 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import com.eventflow.eventflow_api.support.ModuleTestFixtures
 import java.time.Instant
 import java.util.UUID
 
 @SpringBootTest
 class PollRulesIntegrationTest {
     @Autowired lateinit var events: EventService
+    @Autowired lateinit var moduleFixtures: ModuleTestFixtures
     @Autowired lateinit var modules: ModuleDataService
     @Autowired lateinit var users: UserRepository
     @Autowired lateinit var catalog: ModuleCatalogRepository
@@ -37,8 +39,8 @@ class PollRulesIntegrationTest {
         val owner=user()
         val guest=user()
         val eventId=events.create(owner,CreateEventRequest("Poll","CUSTOM",Instant.now().plusSeconds(3600))).id
-        catalog.save(ModuleCatalog("INT","Interactions","Guest","Polls"))
-        events.configureModule(owner,eventId,"INT",ConfigureModuleRequest())
+        moduleFixtures.register(ModuleCatalog("INT","Interactions","Guest","Polls"))
+        moduleFixtures.configure(owner,eventId,"INT",ConfigureModuleRequest())
         events.transition(owner,eventId,EventStatus.PUBLISHED)
         invitations.save(Invitation(eventId=eventId,linkedUserId=guest,guestName="Guest",tokenHash=UUID.randomUUID().toString()))
         val options=listOf(mapOf("id" to "a","label" to "A"),mapOf("id" to "b","label" to "B"))
@@ -58,8 +60,8 @@ class PollRulesIntegrationTest {
         val guest=user()
         val other=user()
         val eventId=events.create(owner,CreateEventRequest("Questions","CUSTOM",Instant.now().plusSeconds(3600))).id
-        catalog.save(ModuleCatalog("INT","Interactions","Guest","Questions"))
-        events.configureModule(owner,eventId,"INT",ConfigureModuleRequest())
+        moduleFixtures.register(ModuleCatalog("INT","Interactions","Guest","Questions"))
+        moduleFixtures.configure(owner,eventId,"INT",ConfigureModuleRequest())
         events.transition(owner,eventId,EventStatus.PUBLISHED)
         listOf(guest,other).forEach{invitations.save(Invitation(eventId=eventId,linkedUserId=it,guestName="Guest",tokenHash=UUID.randomUUID().toString()))}
         val board=modules.create(owner,eventId,"INT","QUESTION_BOARD",ModuleRecordRequest(payload=mapOf("moderationRequired" to true,"allowVotes" to true)))
@@ -74,8 +76,8 @@ class PollRulesIntegrationTest {
     @Test fun `trivia keeps answer and score private until results are published`() {
         val owner=user();val guest=user()
         val eventId=events.create(owner,CreateEventRequest("Trivia","CUSTOM",Instant.now().plusSeconds(3600))).id
-        catalog.save(ModuleCatalog("INT","Interactions","Guest","Trivia"))
-        events.configureModule(owner,eventId,"INT",ConfigureModuleRequest())
+        moduleFixtures.register(ModuleCatalog("INT","Interactions","Guest","Trivia"))
+        moduleFixtures.configure(owner,eventId,"INT",ConfigureModuleRequest())
         events.transition(owner,eventId,EventStatus.PUBLISHED)
         invitations.save(Invitation(eventId=eventId,linkedUserId=guest,guestName="Guest",tokenHash=UUID.randomUUID().toString()))
         val options=listOf(mapOf("id" to "a","label" to "A"),mapOf("id" to "b","label" to "B"))

@@ -9,6 +9,7 @@ import com.eventflow.eventflow_api.shared.application.error.ConflictException
 import com.eventflow.eventflow_api.shared.application.error.ForbiddenException
 import com.eventflow.eventflow_api.shared.application.error.NotFoundException
 import com.eventflow.eventflow_api.shared.application.port.JsonCodec
+import com.eventflow.eventflow_api.user.application.port.UserPrivacyPreferencesPort
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
@@ -18,7 +19,7 @@ data class MeetingRequest(val participantUserId:UUID,val startsAt:Instant,val en
 data class MeetingResponse(val id:UUID,val requesterUserId:UUID,val participantUserId:UUID,val startsAt:Instant,val endsAt:Instant,val location:String?,val status:String)
 
 @Service class MeetingService(private val eventService:EventService,private val events:EventRepositoryPort,
-    private val records:ModuleRecordRepositoryPort,private val json:JsonCodec){
+    private val records:ModuleRecordRepositoryPort,private val json:JsonCodec,private val privacy:UserPrivacyPreferencesPort){
 
     @Transactional fun request(userId:UUID,eventId:UUID,r:MeetingRequest):MeetingResponse{
         eventService.requireVisibleModule(userId,eventId,"NET")
@@ -26,7 +27,7 @@ data class MeetingResponse(val id:UUID,val requesterUserId:UUID,val participantU
         if(!r.endsAt.isAfter(r.startsAt)||!r.startsAt.isAfter(Instant.now())||r.endsAt.isAfter(r.startsAt.plusSeconds(7200)))throw BadRequestException("Horario de reunión inválido")
         if(r.location!=null&&r.location.length>120)throw BadRequestException("Ubicación demasiado larga")
         val profiles=records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,"NET","PROFILE")
-        if(listOf(userId,r.participantUserId).any{id->profiles.none{it.ownerUserId==id&&it.status=="ACTIVE"&&json.readMap(it.payload)["visible"]==true}})
+        if(listOf(userId,r.participantUserId).any{id->privacy.findByUserId(id)?.networkingProfileVisible==false||profiles.none{it.ownerUserId==id&&it.status=="ACTIVE"&&json.readMap(it.payload)["visible"]==true}})
             throw ConflictException("Ambos participantes deben tener un perfil visible")
         val saved=records.save(ModuleRecord(eventId=eventId,moduleCode="NET",recordType="MEETING",ownerUserId=userId,
             status="PENDING",payload=json.write(mapOf("participantUserId" to r.participantUserId.toString(),"location" to r.location)),

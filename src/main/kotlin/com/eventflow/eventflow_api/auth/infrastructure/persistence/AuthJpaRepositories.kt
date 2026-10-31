@@ -13,17 +13,26 @@ import com.eventflow.eventflow_api.auth.domain.UserSession
 import com.eventflow.eventflow_api.auth.domain.UserStatus
 
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.EntityGraph
 import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
 import java.time.Instant
 import java.util.UUID
 
 interface UserRepository : JpaRepository<User, UUID>, UserRepositoryPort {
+    @EntityGraph(attributePaths = ["roles"])
+    override fun findWithRolesById(id: UUID): User?
+
     override fun existsByEmail(email: String): Boolean
     override fun findByEmail(email: String): User?
     override fun findByPhoneNumber(phoneNumber: String): User?
     override fun findByGoogleSubject(googleSubject: String): User?
     override fun findAllByStatusAndDeletionRequestedAtBefore(status: UserStatus, cutoff: Instant): List<User>
+    @Query(value = "select u.* from users u order by u.user_created_at desc,u.user_id desc limit :limit offset :offset", nativeQuery = true)
+    override fun findPage(@Param("offset") offset:Int,@Param("limit") limit:Int):List<User>
+    @Query(value = "select count(*) from users", nativeQuery = true)
+    override fun countAll():Long
     @Query(value = "select u.* from users u join phone_prefix p on p.phone_prefix_id=u.user_phone_prefix_id where concat(p.phone_prefix,u.user_phone_number)=:phone limit 1", nativeQuery = true)
     override fun findByInternationalPhone(phone: String): User?
 }
@@ -36,6 +45,7 @@ interface AuthTokenRepository : JpaRepository<AuthToken, UUID>, AuthTokenReposit
 
 interface UserSessionRepository : JpaRepository<UserSession, UUID>, UserSessionRepositoryPort {
     override fun findByRefreshTokenHash(refreshTokenHash: String): UserSession?
+    override fun findAllByUserIdOrderByCreatedAtDesc(userId: UUID): List<UserSession>
     @Modifying @Query("update UserSession s set s.revokedAt = :now where s.userId = :userId and s.revokedAt is null")
     override fun revokeAll(userId: UUID, now: Instant): Int
 }

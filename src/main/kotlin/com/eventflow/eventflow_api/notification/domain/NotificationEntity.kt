@@ -18,4 +18,14 @@ class NotificationEntity(
     @Column(nullable = false) var active: Boolean = true,
     @Column(name = "dedupe_key", unique = true) var dedupeKey: String? = null,
     @Column(name = "created_at", nullable = false) var createdAt: Instant = Instant.now()
+) {
+    @Transient var readAt: Instant? = null
+}
+
+@Entity @Table(name="notification_read", uniqueConstraints=[UniqueConstraint(name="uq_notification_read_user_notification",columnNames=["user_id","notification_id"])])
+class NotificationRead(
+    @Id @GeneratedValue(strategy=GenerationType.UUID) @Column(name="notification_read_id") var id:UUID?=null,
+    @Column(name="user_id",nullable=false) var userId:UUID,
+    @Column(name="notification_id",nullable=false) var notificationId:UUID,
+    @Column(name="read_at",nullable=false) var readAt:Instant=Instant.now()
 )

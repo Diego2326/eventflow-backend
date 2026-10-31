@@ -9,6 +9,7 @@ import com.eventflow.eventflow_api.event.application.EventService
 import com.eventflow.eventflow_api.event.domain.EventStatus
 import com.eventflow.eventflow_api.event.domain.EventVisibility
 import com.eventflow.eventflow_api.shared.application.error.ConflictException
+import com.eventflow.eventflow_api.shared.application.error.BadRequestException
 import com.eventflow.eventflow_api.module.domain.ModuleCatalog
 import com.eventflow.eventflow_api.module.infrastructure.persistence.ModuleCatalogRepository
 import com.eventflow.eventflow_api.ticketing.application.*
@@ -16,14 +17,17 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import com.eventflow.eventflow_api.support.ModuleTestFixtures
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 @SpringBootTest
 class TicketingFlowTest {
     @Autowired lateinit var auth: AuthService
     @Autowired lateinit var events: EventService
+    @Autowired lateinit var moduleFixtures: ModuleTestFixtures
     @Autowired lateinit var ticketing: TicketingService
     @Autowired lateinit var moduleCatalog: ModuleCatalogRepository
 
@@ -39,14 +43,19 @@ class TicketingFlowTest {
         val organizer = user("Organizer")
         val buyer = user("Buyer")
         val other = user("Other")
-        val starts = Instant.now().plusSeconds(86400)
+        // Use database precision so an equal sales/event boundary stays equal after persistence.
+        val starts = Instant.now().plusSeconds(86400).truncatedTo(ChronoUnit.MICROS)
         val ends = starts.plusSeconds(14400)
         val event = events.create(organizer, CreateEventRequest("Convención", "CUSTOM", starts,
             ends, estimatedCapacity = 10))
-        if (!moduleCatalog.existsById("GST")) moduleCatalog.save(ModuleCatalog("GST", "Pases", "Acceso", "Pases y check-in"))
-        events.configureModule(organizer, event.id, "GST", ConfigureModuleRequest())
+        if (!moduleCatalog.existsById("GST")) moduleFixtures.register(ModuleCatalog("GST", "Pases", "Acceso", "Pases y check-in"))
+        moduleFixtures.configure(organizer, event.id, "GST", ConfigureModuleRequest())
         events.transition(organizer, event.id, EventStatus.PUBLISHED)
         ticketing.settings(organizer, event.id, TicketSettingsRequest(EventVisibility.PUBLIC, admissionCapacity = 2))
+        assertThrows(BadRequestException::class.java) {
+            ticketing.createType(organizer, event.id, TicketTypeRequest("After event", price = BigDecimal("50.00"),
+                capacity = 2, maxPerOrder = 2, salesStart = starts, salesEnd = ends.plus(1, ChronoUnit.MICROS)))
+        }
         val type = ticketing.createType(organizer, event.id, TicketTypeRequest("General", price = BigDecimal("50.00"),
             capacity = 2, maxPerOrder = 2, salesStart = Instant.now().minusSeconds(60), salesEnd = ends))
         assertEquals(1, ticketing.catalog(null, null, null, 0, 20).count { it.id == event.id })

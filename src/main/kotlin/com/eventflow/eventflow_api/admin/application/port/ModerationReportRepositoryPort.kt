@@ -5,4 +5,7 @@ import com.eventflow.eventflow_api.shared.application.port.CrudPort
 
 import java.util.UUID
 
-interface ModerationReportRepositoryPort : CrudPort<ModerationReport, UUID>
+interface ModerationReportRepositoryPort : CrudPort<ModerationReport, UUID> {
+    fun findPage(offset:Int,limit:Int):List<ModerationReport>
+    fun countAll():Long
+}

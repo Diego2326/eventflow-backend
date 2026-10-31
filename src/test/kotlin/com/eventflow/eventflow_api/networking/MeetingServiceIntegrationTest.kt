@@ -22,11 +22,13 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import com.eventflow.eventflow_api.support.ModuleTestFixtures
 import java.time.Instant
 import java.util.UUID
 
 @SpringBootTest class MeetingServiceIntegrationTest {
     @Autowired lateinit var events:EventService
+    @Autowired lateinit var moduleFixtures: ModuleTestFixtures
     @Autowired lateinit var modules:ModuleDataService
     @Autowired lateinit var meetings:MeetingService
     @Autowired lateinit var users:UserRepository
@@ -36,8 +38,8 @@ import java.util.UUID
     @Test fun `only participants see a meeting and accepted times cannot overlap`() {
         val owner=user();val a=user();val b=user();val c=user()
         val eventId=events.create(owner,CreateEventRequest("Networking","CUSTOM",Instant.now().plusSeconds(3600))).id
-        catalog.save(ModuleCatalog("NET","Networking","Guest","Profiles"))
-        events.configureModule(owner,eventId,"NET",ConfigureModuleRequest())
+        moduleFixtures.register(ModuleCatalog("NET","Networking","Guest","Profiles"))
+        moduleFixtures.configure(owner,eventId,"NET",ConfigureModuleRequest())
         events.transition(owner,eventId,EventStatus.PUBLISHED)
         listOf(a,b,c).forEach{invitations.save(Invitation(eventId=eventId,linkedUserId=it,guestName="Guest",tokenHash=UUID.randomUUID().toString()))}
         listOf(a,b,c).forEach{modules.create(it,eventId,"NET","PROFILE",ModuleRecordRequest(payload=mapOf("consent" to true,"visible" to true,"interests" to listOf("tech"))))}

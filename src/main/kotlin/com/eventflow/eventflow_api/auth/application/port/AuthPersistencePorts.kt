@@ -13,6 +13,9 @@ import java.time.Instant
 import java.util.UUID
 
 interface UserRepositoryPort : CrudPort<User, UUID> {
+    fun findWithRolesById(id:UUID):User?
+    fun findPage(offset:Int,limit:Int):List<User>
+    fun countAll():Long
     fun existsByEmail(email: String): Boolean
     fun findByEmail(email: String): User?
     fun findByPhoneNumber(phoneNumber: String): User?
@@ -26,6 +29,7 @@ interface AuthTokenRepositoryPort : CrudPort<AuthToken, UUID> {
 }
 interface UserSessionRepositoryPort : CrudPort<UserSession, UUID> {
     fun findByRefreshTokenHash(refreshTokenHash: String): UserSession?
+    fun findAllByUserIdOrderByCreatedAtDesc(userId: UUID): List<UserSession>
     fun revokeAll(userId: UUID, now: Instant): Int
 }
 interface NotificationPreferenceRepositoryPort : CrudPort<NotificationPreference, NotificationPreferenceId> {

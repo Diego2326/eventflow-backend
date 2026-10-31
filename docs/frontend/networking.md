@@ -11,3 +11,7 @@ Para solicitar reunión usa `POST /api/events/{eventId}/networking/meetings`:
 ```
 
 Ambos participantes necesitan perfil visible. `GET` en esa ruta lista solo reuniones propias. El invitado destinatario responde en `POST .../{id}/accept` o `/decline`; cualquiera de los dos cancela en `/cancel`. Aceptar bloquea choques con reuniones aceptadas de cualquiera de los participantes. La reunión empieza `PENDING` y puede pasar a `ACCEPTED`, `DECLINED` o `CANCELLED`.
+
+## Privacidad de networking
+
+Consulta `GET /api/profile/privacy` y cambia las preferencias propias mediante `PUT` con `{ "networkingProfileVisible":true, "networkingContactVisible":false }`. Las preferencias se aplican a resultados de networking, perfil por QR, solicitudes de reunión y campos compartidos. Si el perfil es privado, otros usuarios no lo pueden descubrir; el titular tampoco puede generar un QR público de perfil. Si solo el contacto es privado, el campo `contact` se omite en respuestas de perfil para terceros. El comportamiento inicial para usuarios sin preferencia guardada es visible/compartible para conservar el contrato anterior.

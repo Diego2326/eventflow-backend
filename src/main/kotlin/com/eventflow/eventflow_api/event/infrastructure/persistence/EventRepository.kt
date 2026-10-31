@@ -7,10 +7,15 @@ import com.eventflow.eventflow_api.event.domain.EventEntity
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.jpa.repository.Lock
+import org.springframework.data.repository.query.Param
 import jakarta.persistence.LockModeType
 import java.util.UUID
 
 interface EventRepository : JpaRepository<EventEntity, UUID>, EventRepositoryPort {
+    @Query(value = "select * from event order by created_at desc,event_id desc limit :limit offset :offset", nativeQuery = true)
+    override fun findPage(@Param("offset") offset:Int,@Param("limit") limit:Int):List<EventEntity>
+    @Query(value = "select count(*) from event", nativeQuery = true)
+    override fun countAll():Long
     @Query("select distinct e from EventEntity e left join EventCollaborator c on c.eventId=e.id where e.ownerUserId=:userId or c.userId=:userId")
     override fun findAccessible(userId: UUID): List<EventEntity>
     @Lock(LockModeType.PESSIMISTIC_WRITE)

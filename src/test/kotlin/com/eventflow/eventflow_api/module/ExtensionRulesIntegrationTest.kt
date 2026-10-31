@@ -18,12 +18,14 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import com.eventflow.eventflow_api.support.ModuleTestFixtures
 import java.time.Instant
 import java.util.UUID
 
 @SpringBootTest
 class ExtensionRulesIntegrationTest {
     @Autowired lateinit var events: EventService
+    @Autowired lateinit var moduleFixtures: ModuleTestFixtures
     @Autowired lateinit var modules: ModuleDataService
     @Autowired lateinit var users: UserRepository
     @Autowired lateinit var catalog: ModuleCatalogRepository
@@ -57,8 +59,8 @@ class ExtensionRulesIntegrationTest {
         val owner=user()
         val guests=List(guestCount){user()}
         val id=events.create(owner,CreateEventRequest("Extension","CUSTOM",Instant.now().plusSeconds(3600))).id
-        catalog.save(ModuleCatalog(code,code,"Guest",code))
-        events.configureModule(owner,id,code,ConfigureModuleRequest())
+        moduleFixtures.register(ModuleCatalog(code,code,"Guest",code))
+        moduleFixtures.configure(owner,id,code,ConfigureModuleRequest())
         events.transition(owner,id,EventStatus.PUBLISHED)
         guests.forEach{invitations.save(Invitation(eventId=id,linkedUserId=it,guestName="Guest",tokenHash=UUID.randomUUID().toString()))}
         return Triple(owner,guests,id)

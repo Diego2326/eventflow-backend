@@ -1,17 +1,50 @@
 # Environment and secrets
 .env
 .env.*
+.env copy*
+*.env
+*.env.*
+*.env copy*
 !.env.example
+*password*
+*Password*
+*PASSWORD*
+*passwd*
+*credential*
+*Credential*
+*jwt*secret*
+*JWT*SECRET*
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
 
 # Gradle
 .gradle/
 .kotlin/
 build/
+*.class
+*.jar
+*.war
+backups/
 
 # IntelliJ IDEA
 .idea/
 *.iml
 out/
+
+# Temporary and local diagnostic files
+*.tmp
+*.temp
+*.bak
+*.orig
+*.swp
+*.log
+build-error.txt
 
 # Operating system
 .DS_Store
