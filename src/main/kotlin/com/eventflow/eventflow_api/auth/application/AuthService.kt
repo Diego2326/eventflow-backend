@@ -57,7 +57,7 @@ class AuthService(
             passwordHash = requireNotNull(passwordEncoder.encode(request.password)), birthDate = request.birthDate,
             nationalityCountryCode = request.nationalityCountryCode?.uppercase()))
         val raw = issueToken(requireNotNull(user.id), AuthTokenType.EMAIL_VERIFICATION, Duration.ofHours(24))
-        sendLink(email, "Activa tu cuenta de EventFlow", "${settings.frontendUrl}/verify-email?token=$raw")
+        sendLink(email, "Activa tu cuenta de EventFlow", links("verify-email", raw))
         return raw.takeIf { settings.exposeTokens }
     }
 
@@ -75,7 +75,7 @@ class AuthService(
         if (user.status != UserStatus.PENDING_VERIFICATION) return null
         tokenRepository.revokeActive(requireNotNull(user.id), AuthTokenType.EMAIL_VERIFICATION, Instant.now())
         val raw = issueToken(requireNotNull(user.id), AuthTokenType.EMAIL_VERIFICATION, Duration.ofHours(24))
-        sendLink(user.email, "Activa tu cuenta de EventFlow", "${settings.frontendUrl}/verify-email?token=$raw")
+        sendLink(user.email, "Activa tu cuenta de EventFlow", links("verify-email", raw))
         return raw.takeIf { settings.exposeTokens }
     }
 
@@ -131,7 +131,7 @@ class AuthService(
         if (user.status !in setOf(UserStatus.ACTIVE, UserStatus.DELETION_PENDING)) return null
         tokenRepository.revokeActive(requireNotNull(user.id), AuthTokenType.PASSWORD_RESET, Instant.now())
         val raw = issueToken(requireNotNull(user.id), AuthTokenType.PASSWORD_RESET, Duration.ofMinutes(30))
-        sendLink(user.email, "Restablece tu contraseña de EventFlow", "${settings.frontendUrl}/reset-password?token=$raw")
+        sendLink(user.email, "Restablece tu contraseña de EventFlow", links("reset-password", raw))
         return raw.takeIf { settings.exposeTokens }
     }
 
@@ -164,7 +164,7 @@ class AuthService(
         user.status = UserStatus.ACTIVE; user.deletionRequestedAt = null; user.updatedAt = Instant.now()
     }
 
-    @Transactional fun requestEmailChange(userId:UUID,emailRaw:String):String?{val email=emailRaw.trim().lowercase();if(!email.contains('@'))throw BadRequestException("Correo inválido");if(userRepository.existsByEmail(email))throw ConflictException("El correo ya está registrado");val user=user(userId);user.pendingEmail=email;tokenRepository.revokeActive(userId,AuthTokenType.EMAIL_CHANGE,Instant.now());val raw=issueToken(userId,AuthTokenType.EMAIL_CHANGE,Duration.ofHours(2));sendLink(email,"Confirma tu nuevo correo de EventFlow","${settings.frontendUrl}/confirm-email-change?token=$raw");return raw.takeIf{settings.exposeTokens}}
+    @Transactional fun requestEmailChange(userId:UUID,emailRaw:String):String?{val email=emailRaw.trim().lowercase();if(!email.contains('@'))throw BadRequestException("Correo inválido");if(userRepository.existsByEmail(email))throw ConflictException("El correo ya está registrado");val user=user(userId);user.pendingEmail=email;tokenRepository.revokeActive(userId,AuthTokenType.EMAIL_CHANGE,Instant.now());val raw=issueToken(userId,AuthTokenType.EMAIL_CHANGE,Duration.ofHours(2));sendLink(email,"Confirma tu nuevo correo de EventFlow",links("confirm-email-change",raw));return raw.takeIf{settings.exposeTokens}}
     @Transactional fun confirmEmailChange(raw:String){val token=validToken(raw,AuthTokenType.EMAIL_CHANGE);val user=user(token.userId);if(user.status !in setOf(UserStatus.ACTIVE,UserStatus.DELETION_PENDING))throw ConflictException("La cuenta no admite cambio de correo");val email=user.pendingEmail?:throw ConflictException("No existe cambio de correo pendiente");if(userRepository.existsByEmail(email))throw ConflictException("El correo ya está registrado");user.email=email;user.pendingEmail=null;user.emailVerifiedAt=Instant.now();user.updatedAt=Instant.now();token.usedAt=Instant.now();sessionRepository.revokeAll(requireNotNull(user.id),Instant.now())}
 
     private fun setStatusAndRevoke(userId: UUID, status: UserStatus) { val user=user(userId); user.status=status; user.updatedAt=Instant.now(); sessionRepository.revokeAll(userId, Instant.now()) }
@@ -174,7 +174,8 @@ class AuthService(
         val session = sessionRepository.save(UserSession(userId = requireNotNull(user.id), refreshTokenHash = hash(refresh),
             expiresAt = Instant.now().plus(Duration.ofDays(30)), userAgent = userAgent?.take(500), ipAddress = ip?.take(64)))
         return AuthResponse(accessTokenIssuer.issue(requireNotNull(user.id), user.email, user.name, user.roles.map { it.name }.toSet(), requireNotNull(session.id)), refresh, userId = requireNotNull(user.id),
-            name = user.name, email = user.email, roles = user.roles.map { it.name }.toSet())
+            name = user.name, email = user.email, roles = user.roles.map { it.name }.toSet(),
+            profileComplete = !user.phoneNumber.isNullOrBlank())
     }
     private fun issueToken(userId: UUID, type: AuthTokenType, duration: Duration): String {
         val raw = randomToken(); tokenRepository.save(AuthToken(userId = userId, tokenHash = hash(raw), type = type, expiresAt = Instant.now().plus(duration))); return raw
@@ -187,6 +188,10 @@ class AuthService(
     private fun sendLink(to: String, subject: String, link: String) {
         accountMessages.sendLink(to, subject, link)
     }
+    private fun links(path: String, token: String): String = listOf(
+        "Web: ${settings.frontendUrl.trimEnd('/')}/$path?token=$token",
+        "App: ${settings.deepLinkBase}/$path?token=$token"
+    ).joinToString("\n")
     private fun validatePassword(value: String) {
         if (value.length !in 8..72 || !value.any(Char::isUpperCase) || !value.any(Char::isLowerCase) || !value.any(Char::isDigit) || value.all(Char::isLetterOrDigit)) throw IllegalArgumentException("La contraseña debe tener 8-72 caracteres e incluir mayúscula, minúscula, número y símbolo")
     }

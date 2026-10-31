@@ -6,14 +6,31 @@ import com.eventflow.eventflow_api.marketplace.domain.OfferingStatus
 import com.eventflow.eventflow_api.marketplace.domain.OfferingType
 
 import org.springframework.data.jpa.repository.JpaRepository
-import org.springframework.data.jpa.repository.Query
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor
+import org.springframework.data.jpa.domain.Specification
+import org.springframework.data.domain.PageRequest
+import org.springframework.data.domain.Sort
+import jakarta.persistence.criteria.Predicate
 import java.util.UUID
 
-interface MarketplaceOfferingRepository : JpaRepository<MarketplaceOffering, UUID>, MarketplaceOfferingRepositoryPort {
+interface MarketplaceOfferingRepository : JpaRepository<MarketplaceOffering, UUID>, JpaSpecificationExecutor<MarketplaceOffering>, MarketplaceOfferingRepositoryPort {
     override fun findAllByTypeAndStatus(type: OfferingType, status: OfferingStatus): List<MarketplaceOffering>
-    @Query("select o from MarketplaceOffering o where o.type=:type and o.status='ACTIVE' and (:category is null or lower(o.category)=lower(:category)) and (:location is null or lower(o.location) like lower(concat('%',:location,'%'))) and (:minCapacity is null or o.capacity>=:minCapacity) and (:maxPrice is null or o.price<=:maxPrice) and (:minRating is null or o.rating>=:minRating) order by o.createdAt desc, o.id desc")
-    fun searchPage(type: OfferingType, category: String?, location: String?, minCapacity: Int?, maxPrice: java.math.BigDecimal?, minRating: java.math.BigDecimal?, pageable: org.springframework.data.domain.Pageable): List<MarketplaceOffering>
-    override fun search(type: OfferingType, category: String?, location: String?, minCapacity: Int?, maxPrice: java.math.BigDecimal?, minRating: java.math.BigDecimal?, page:Int, pageSize:Int) =
-        searchPage(type,category,location,minCapacity,maxPrice,minRating,org.springframework.data.domain.PageRequest.of(page,pageSize))
+    override fun search(type: OfferingType, category: String?, location: String?, minCapacity: Int?, maxPrice: java.math.BigDecimal?, minRating: java.math.BigDecimal?, page:Int, pageSize:Int): List<MarketplaceOffering> {
+        // Omit absent predicates instead of binding untyped nulls inside lower().
+        val specification = Specification<MarketplaceOffering> { root, _, builder ->
+            val predicates = mutableListOf<Predicate>(
+                builder.equal(root.get<OfferingType>("type"), type),
+                builder.equal(root.get<OfferingStatus>("status"), OfferingStatus.ACTIVE)
+            )
+            category?.let { predicates += builder.equal(builder.lower(root.get("category")), builder.lower(builder.literal(it))) }
+            location?.let { predicates += builder.like(builder.lower(root.get("location")), builder.lower(builder.literal("%$it%"))) }
+            minCapacity?.let { predicates += builder.ge(root.get<Int>("capacity"), it) }
+            maxPrice?.let { predicates += builder.le(root.get<java.math.BigDecimal>("price"), it) }
+            minRating?.let { predicates += builder.ge(root.get<java.math.BigDecimal>("rating"), it) }
+            builder.and(*predicates.toTypedArray())
+        }
+        val sort = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))
+        return findAll(specification, PageRequest.of(page, pageSize, sort)).content
+    }
     override fun findAllByOwnerUserId(ownerUserId: UUID): List<MarketplaceOffering>
 }

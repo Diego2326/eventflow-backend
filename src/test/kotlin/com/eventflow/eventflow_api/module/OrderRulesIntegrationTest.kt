@@ -21,12 +21,14 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import com.eventflow.eventflow_api.support.ModuleTestFixtures
 import java.time.Instant
 import java.util.UUID
 
 @SpringBootTest
 class OrderRulesIntegrationTest {
     @Autowired lateinit var events: EventService
+    @Autowired lateinit var moduleFixtures: ModuleTestFixtures
     @Autowired lateinit var modules: ModuleDataService
     @Autowired lateinit var users: UserRepository
     @Autowired lateinit var catalog: ModuleCatalogRepository
@@ -37,10 +39,10 @@ class OrderRulesIntegrationTest {
         val owner=user()
         val guest=user()
         val eventId=events.create(owner,CreateEventRequest("Orders","CUSTOM",Instant.now().plusSeconds(3600))).id
-        catalog.save(ModuleCatalog("ORD","Orders","Guest","Orders"))
-        catalog.save(ModuleCatalog("NOT","Notifications","Guest","Notifications"))
-        events.configureModule(owner,eventId,"ORD",ConfigureModuleRequest())
-        events.configureModule(owner,eventId,"NOT",ConfigureModuleRequest())
+        moduleFixtures.register(ModuleCatalog("ORD","Orders","Guest","Orders"))
+        moduleFixtures.register(ModuleCatalog("NOT","Notifications","Guest","Notifications"))
+        moduleFixtures.configure(owner,eventId,"ORD",ConfigureModuleRequest())
+        moduleFixtures.configure(owner,eventId,"NOT",ConfigureModuleRequest())
         events.transition(owner,eventId,EventStatus.PUBLISHED)
         invitations.save(Invitation(eventId=eventId,linkedUserId=guest,guestName="Guest",tokenHash=UUID.randomUUID().toString()))
         val category=modules.create(owner,eventId,"ORD","MENU_CATEGORY",ModuleRecordRequest(title="Drinks"))

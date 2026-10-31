@@ -20,11 +20,13 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import com.eventflow.eventflow_api.support.ModuleTestFixtures
 import java.time.Instant
 import java.util.UUID
 
 @SpringBootTest class DrawServiceIntegrationTest {
     @Autowired lateinit var events:EventService
+    @Autowired lateinit var moduleFixtures: ModuleTestFixtures
     @Autowired lateinit var draws:DrawService
     @Autowired lateinit var modules:ModuleDataService
     @Autowired lateinit var users:UserRepository
@@ -35,8 +37,8 @@ import java.util.UUID
     @Test fun `draw only picks checked in guests and excludes previous winner`() {
         val owner=requireNotNull(users.save(User(name="Owner",email="draw-${UUID.randomUUID()}@example.com",passwordHash="unused")).id)
         val eventId=events.create(owner,CreateEventRequest("Draw","CUSTOM",Instant.now().plusSeconds(3600))).id
-        catalog.save(ModuleCatalog("INT","Interactions","Guest","Draws"))
-        events.configureModule(owner,eventId,"INT",ConfigureModuleRequest())
+        moduleFixtures.register(ModuleCatalog("INT","Interactions","Guest","Draws"))
+        moduleFixtures.configure(owner,eventId,"INT",ConfigureModuleRequest())
         events.transition(owner,eventId,EventStatus.PUBLISHED)
         val eligible=invitations.save(Invitation(eventId=eventId,guestName="Eligible",tokenHash=UUID.randomUUID().toString()))
         invitations.save(Invitation(eventId=eventId,guestName="Absent",tokenHash=UUID.randomUUID().toString()))

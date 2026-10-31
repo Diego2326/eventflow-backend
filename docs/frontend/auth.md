@@ -23,3 +23,5 @@
 ## Perfil
 
 `GET/PATCH /api/profile` consulta o actualiza `name`, teléfono, foto, nacimiento y nacionalidad. `GET /api/profile/notification-preferences` y `PUT` con `{ "channel": "IN_APP", "enabled": true }` controlan avisos. `POST /api/profile/role-requests` con `{ "role": "...", "reason": "..." }` solicita roles de organizador, propietario o proveedor; la aprobación administrativa es necesaria antes de usar las rutas con esos roles.
+
+La privacidad de networking se consulta/actualiza en `GET/PUT /api/profile/privacy` con campos booleanos `networkingProfileVisible` y `networkingContactVisible`; el usuario se identifica por el JWT y no debe enviarse un `userId`.

@@ -10,5 +10,6 @@ data class AuthResponse (
     val userId: UUID,
     val name: String,
     val email: String,
-    val roles: Set<String>
+    val roles: Set<String>,
+    val profileComplete: Boolean = true
 )

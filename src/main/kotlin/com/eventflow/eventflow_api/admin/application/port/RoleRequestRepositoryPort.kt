@@ -5,4 +5,7 @@ import com.eventflow.eventflow_api.shared.application.port.CrudPort
 
 import java.util.UUID
 
-interface RoleRequestRepositoryPort : CrudPort<RoleRequest, UUID>
+interface RoleRequestRepositoryPort : CrudPort<RoleRequest, UUID> {
+    fun findPendingPage(offset:Int,limit:Int):List<RoleRequest>
+    fun countPending():Long
+}

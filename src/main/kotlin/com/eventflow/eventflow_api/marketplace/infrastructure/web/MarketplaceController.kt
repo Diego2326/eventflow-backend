@@ -30,6 +30,8 @@ import java.util.UUID
     @PostMapping("/offerings/{id}/availability") @ResponseStatus(HttpStatus.CREATED) fun availability(a:Authentication,@PathVariable id:UUID,@RequestBody r:AvailabilityRequest)=s.availability(a.userId(),id,r)
     @GetMapping("/offerings/{id}/availability") fun availability(@PathVariable id:UUID)=s.availability(id)
     @PostMapping("/reservations") @ResponseStatus(HttpStatus.CREATED) fun reserve(a:Authentication,@RequestBody r:ReservationRequest)=s.reserve(a.userId(),r)
+    @GetMapping("/reservations/mine") fun myReservations(a:Authentication)=s.myReservations(a.userId())
+    @GetMapping("/reservations/{id}") fun myReservation(a:Authentication,@PathVariable id:UUID)=s.myReservation(a.userId(),id)
     @GetMapping("/events/{eventId}/reservations") fun reservations(a:Authentication,@PathVariable eventId:UUID)=s.eventReservations(a.userId(),eventId)
     @PostMapping("/reservations/{id}/decision") fun decide(a:Authentication,@PathVariable id:UUID,@RequestBody r:DecisionRequest)=s.decide(a.userId(),id,r)
     @PostMapping("/reservations/{id}/cancel") fun cancel(a:Authentication,@PathVariable id:UUID)=s.cancel(a.userId(),id)

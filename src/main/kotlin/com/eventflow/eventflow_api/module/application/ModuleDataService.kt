@@ -22,6 +22,7 @@ import com.eventflow.eventflow_api.shared.application.error.NotFoundException
 import com.eventflow.eventflow_api.shared.application.port.JsonCodec
 import com.eventflow.eventflow_api.storage.application.port.FileAssetRepositoryPort
 import com.eventflow.eventflow_api.storage.domain.FileModerationStatus
+import com.eventflow.eventflow_api.user.application.port.UserPrivacyPreferencesPort
 
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -43,7 +44,7 @@ data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:Li
 
 @Service class ModuleDataService(private val records:ModuleRecordRepositoryPort,private val actions:ModuleActionRepositoryPort,private val invitations:InvitationRepositoryPort,private val notifications:NotificationRepositoryPort,private val events:EventRepositoryPort,private val eventService:EventService,private val mapper:JsonCodec,
     private val surveyParticipation:SurveyParticipationRepositoryPort,private val surveyAnonymity:SurveyAnonymity,
-    private val gamification:GamificationService,private val files:FileAssetRepositoryPort,
+    private val gamification:GamificationService,private val files:FileAssetRepositoryPort,private val privacy:UserPrivacyPreferencesPort,
     private val agenda:AgendaItemRepositoryPort){
     private val guestCreatable=setOf("GAL:PHOTO","NET:PROFILE","LNF:LOST_ITEM","REV:SURVEY_RESPONSE","ORD:ORDER","INT:QUESTION","INT:GUEST_MESSAGE","INT:SONG")
     private val types=mapOf(
@@ -209,10 +210,10 @@ data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:Li
         val anonymousResponse=module=="REV"&&type=="SURVEY_RESPONSE"&&map(find(eventId,requireNotNull(r.parentRecordId)).payload)["anonymous"]==true
         val saved=records.save(ModuleRecord(eventId=eventId,moduleCode=module,recordType=type,ownerUserId=if(anonymousResponse)null else userId,parentRecordId=r.parentRecordId,status=initialStatus,title=r.title,payload=mapper.write(payload),capacity=if(module=="SES"&&type=="SESSION")linkedAgenda?.capacity else r.capacity,startsAt=linkedAgenda?.startsAt?:r.startsAt,endsAt=linkedAgenda?.endsAt?:r.endsAt))
         if(anonymousResponse)surveyParticipation.save(SurveyParticipation(surveyAnonymity.participantHash(requireNotNull(r.parentRecordId),userId),r.parentRecordId,requireNotNull(saved.id)))
-        return response(saved)
+        return response(saved,viewerUserId=userId)
     }
-    @Transactional(readOnly=true) fun list(userId:UUID,eventId:UUID,moduleRaw:String,typeRaw:String):List<ModuleRecordResponse>{val module=moduleRaw.uppercase();val type=typeRaw.uppercase();eventService.accessible(userId,eventId);eventService.requireModule(eventId,module);validateType(module,type);val manager=isManager(userId,eventId)||(module=="ORD"&&type=="ORDER"&&isOrderStaff(userId,eventId));if(!manager&&!eventService.guestModuleVisible(eventId,module))return emptyList();return records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,module,type).filter{it.status!="ARCHIVED"&&visibleTo(it,userId,manager)}.map{response(it,!manager)}}
-    @Transactional(readOnly=true) fun get(userId:UUID,eventId:UUID,id:UUID):ModuleRecordResponse{eventService.accessible(userId,eventId);val record=find(eventId,id);eventService.requireModule(eventId,record.moduleCode);val manager=isManager(userId,eventId)||(record.moduleCode=="ORD"&&record.recordType=="ORDER"&&isOrderStaff(userId,eventId));if(!manager&&(!eventService.guestModuleVisible(eventId,record.moduleCode)||!visibleTo(record,userId,false)))throw NotFoundException("Registro no encontrado");return response(record,!manager)}
+    @Transactional(readOnly=true) fun list(userId:UUID,eventId:UUID,moduleRaw:String,typeRaw:String):List<ModuleRecordResponse>{val module=moduleRaw.uppercase();val type=typeRaw.uppercase();eventService.accessible(userId,eventId);eventService.requireModule(eventId,module);validateType(module,type);val manager=isManager(userId,eventId)||(module=="ORD"&&type=="ORDER"&&isOrderStaff(userId,eventId));if(!manager&&!eventService.guestModuleVisible(eventId,module))return emptyList();return records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,module,type).filter{it.status!="ARCHIVED"&&visibleTo(it,userId,manager)}.map{response(it,!manager,userId)}}
+    @Transactional(readOnly=true) fun get(userId:UUID,eventId:UUID,id:UUID):ModuleRecordResponse{eventService.accessible(userId,eventId);val record=find(eventId,id);eventService.requireModule(eventId,record.moduleCode);val manager=isManager(userId,eventId)||(record.moduleCode=="ORD"&&record.recordType=="ORDER"&&isOrderStaff(userId,eventId));if(!manager&&(!eventService.guestModuleVisible(eventId,record.moduleCode)||!visibleTo(record,userId,false)))throw NotFoundException("Registro no encontrado");return response(record,!manager,userId)}
     @Transactional fun update(userId:UUID,eventId:UUID,id:UUID,r:ModuleRecordUpdate):ModuleRecordResponse{eventService.accessible(userId,eventId);val x=lockedRecord(eventId,id);val manager=isManager(userId,eventId);val orderStaff=x.moduleCode=="ORD"&&x.recordType=="ORDER"&&isOrderStaff(userId,eventId);if(!manager&&!orderStaff&&x.ownerUserId!=userId)throw ForbiddenException("No puedes modificar este registro");eventService.requireModule(eventId,x.moduleCode);if(!manager&&!orderStaff&&!eventService.guestModuleVisible(eventId,x.moduleCode))throw ForbiddenException("El módulo no está disponible para invitados");if(!manager&&x.moduleCode=="GAL"&&x.status=="ACTIVE"&&(r.title!=null||r.payload!=null))throw ConflictException("La foto aprobada requiere nueva moderación");if(!manager&&x.moduleCode=="REV"&&x.recordType=="SURVEY_RESPONSE")throw ForbiddenException("La respuesta enviada no se puede modificar");if(!manager&&!orderStaff&&(r.capacity!=null||r.startsAt!=null||r.endsAt!=null))throw ForbiddenException("No puedes cambiar capacidad u horario");validateWindow(r.startsAt?:x.startsAt,r.endsAt?:x.endsAt)
         r.payload?.let{validateInputSize(r.title,it)}
         if(r.payload==null)validateInputSize(r.title,emptyMap())
@@ -305,7 +306,7 @@ data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:Li
         r.title?.let{x.title=it};r.payload?.let{x.payload=mapper.write(it)};r.status?.let{if(!manager&&!orderStaff&&x.recordType!="ORDER"&&it.uppercase()!=x.status)throw ForbiddenException("No puedes moderar este registro");x.status=it.uppercase()};r.capacity?.let{if(it<x.currentCount||it<0)throw ConflictException("Capacidad inválida");x.capacity=it};r.startsAt?.let{x.startsAt=it};r.endsAt?.let{x.endsAt=it};x.updatedAt=Instant.now()
         if(x.moduleCode=="ORD"&&x.recordType=="ORDER"&&r.status!=null&&x.ownerUserId!=null&&moduleEnabled(eventId,"NOT"))
             notifications.save(NotificationEntity(eventId=eventId,authorUserId=userId,recipientUserId=x.ownerUserId,title="Pedido ${orderStatusLabel(x.status)}",body="Tu pedido cambió a ${orderStatusLabel(x.status)}",audienceType="USER"))
-        return response(x)}
+        return response(x,viewerUserId=userId)}
     @Transactional fun archive(userId:UUID,eventId:UUID,id:UUID){
         eventService.accessible(userId,eventId)
         val x=lockedRecord(eventId,id)
@@ -440,12 +441,13 @@ data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:Li
     }
     @Transactional(readOnly=true) fun networkingSuggestions(userId:UUID,eventId:UUID):List<ModuleRecordResponse>{
         eventService.requireVisibleModule(userId,eventId,"NET")
+        if(privacy.findByUserId(userId)?.networkingProfileVisible==false)return emptyList()
         val profiles=records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,"NET","PROFILE")
         val mine=profiles.firstOrNull{it.ownerUserId==userId&&it.status=="ACTIVE"&&map(it.payload)["visible"]==true}?:return emptyList()
         val interests=(map(mine.payload)["interests"] as? List<*>)?.map{it.toString().lowercase()}?.toSet()?:emptySet()
-        return profiles.asSequence().filter{it.ownerUserId!=userId&&it.status=="ACTIVE"&&map(it.payload)["visible"]==true}
+        return profiles.asSequence().filter{it.ownerUserId!=userId&&it.status=="ACTIVE"&&map(it.payload)["visible"]==true&&privacy.findByUserId(it.ownerUserId!!)?.networkingProfileVisible!=false}
             .map{it to ((map(it.payload)["interests"] as? List<*>)?.count{interest->interest.toString().lowercase() in interests}?:0)}
-            .filter{it.second>0}.sortedByDescending{it.second}.take(20).map{response(it.first)}.toList()
+            .filter{it.second>0}.sortedByDescending{it.second}.take(20).map{response(it.first,viewerUserId=userId)}.toList()
     }
     @Transactional(readOnly=true) fun myResources(userId:UUID,eventId:UUID):List<ModuleRecordResponse>{
         eventService.accessible(userId,eventId)
@@ -501,9 +503,12 @@ data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:Li
         return searchable.filter{(module,_)->moduleEnabled(eventId,module)&&(manager||eventService.guestModuleVisible(eventId,module))}
             .flatMap{(module,type)->records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,module,type)}
             .filter{it.status=="ACTIVE"&&visibleTo(it,userId,manager)}
-            .filter{it.title?.lowercase()?.contains(needle)==true||map(it.payload).values.any{value->value is String&&value.lowercase().contains(needle)}}
+            .filter{it.title?.lowercase()?.contains(needle)==true||map(it.payload).values.any{value->
+                value is String && !isUuidReference(value) && value.lowercase().contains(needle)
+            }}
             .take(50).map{MapSearchResult(requireNotNull(it.id),it.moduleCode,it.recordType,it.title,map(it.payload))}
     }
+    private fun isUuidReference(value:String):Boolean = runCatching { UUID.fromString(value).toString()==value.lowercase() }.getOrDefault(false)
     @Transactional(readOnly=true) fun myMapLocation(userId:UUID,eventId:UUID):List<MapSearchResult>{
         eventService.requireVisibleModule(userId,eventId,"MAP")
         val assigned=invitations.findAllByLinkedUserId(userId).filter{it.eventId==eventId&&it.revokedAt==null}
@@ -666,6 +671,7 @@ data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:Li
     }
     private fun isManager(userId:UUID,eventId:UUID)=try{eventService.owned(userId,eventId);true}catch(_:ForbiddenException){false}
     private fun visibleTo(record:ModuleRecord,userId:UUID,manager:Boolean):Boolean {
+        if(record.moduleCode=="NET"&&record.recordType=="PROFILE"&&record.ownerUserId!=userId&&privacy.findByUserId(record.ownerUserId?:return false)?.networkingProfileVisible==false)return false
         if(manager)return true
         if(record.moduleCode=="ADM"||record.status=="ARCHIVED")return false
         if(record.moduleCode=="LNF"&&record.recordType=="LOST_ITEM")return record.ownerUserId==userId
@@ -683,8 +689,13 @@ data class TriviaResultsResponse(val triviaId:UUID,val answers:Int,val scores:Li
         return true
     }
     @Suppress("UNCHECKED_CAST") private fun map(json:String)=mapper.readMap(json)
-    private fun response(x:ModuleRecord,guest:Boolean=false)=ModuleRecordResponse(requireNotNull(x.id),x.eventId,x.moduleCode,x.recordType,x.ownerUserId,x.parentRecordId,x.status,x.title,
-        if(guest&&x.moduleCode=="INT"&&x.recordType=="TRIVIA")map(x.payload)-"correctOptionId" else map(x.payload),x.capacity,x.currentCount,x.startsAt,x.endsAt,x.createdAt)
+    private fun response(x:ModuleRecord,guest:Boolean=false,viewerUserId:UUID?=null):ModuleRecordResponse{
+        var payload=map(x.payload)
+        if(guest&&x.moduleCode=="INT"&&x.recordType=="TRIVIA")payload=payload-"correctOptionId"
+        val owner=x.ownerUserId
+        if(x.moduleCode=="NET"&&x.recordType=="PROFILE"&&owner!=null&&owner!=viewerUserId&&privacy.findByUserId(owner)?.networkingContactVisible==false)payload=payload-"contact"
+        return ModuleRecordResponse(requireNotNull(x.id),x.eventId,x.moduleCode,x.recordType,x.ownerUserId,x.parentRecordId,x.status,x.title,payload,x.capacity,x.currentCount,x.startsAt,x.endsAt,x.createdAt)
+    }
     private fun actionResponse(x:ModuleAction,hideScore:Boolean=false)=ModuleActionResponse(requireNotNull(x.id),x.moduleRecordId,x.actorUserId,x.actionType,
         if(hideScore)map(x.payload)-"score" else map(x.payload),x.createdAt,x.quantity)
 }

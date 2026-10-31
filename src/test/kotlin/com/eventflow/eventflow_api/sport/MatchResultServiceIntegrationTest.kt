@@ -20,11 +20,13 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import com.eventflow.eventflow_api.support.ModuleTestFixtures
 import java.time.Instant
 import java.util.UUID
 
 @SpringBootTest class MatchResultServiceIntegrationTest {
     @Autowired lateinit var events:EventService
+    @Autowired lateinit var moduleFixtures: ModuleTestFixtures
     @Autowired lateinit var modules:ModuleDataService
     @Autowired lateinit var agenda:AgendaService
     @Autowired lateinit var results:MatchResultService
@@ -34,10 +36,10 @@ import java.util.UUID
     @Test fun `winners advance into configured bracket slots`() {
         val owner=requireNotNull(users.save(User(name="Owner",email="sport-${UUID.randomUUID()}@example.com",passwordHash="unused")).id)
         val eventId=events.create(owner,CreateEventRequest("Tournament","CUSTOM",Instant.now().plusSeconds(3600))).id
-        catalog.save(ModuleCatalog("SPT","Sports","Guest","Matches"))
-        catalog.save(ModuleCatalog("CAL","Agenda","Guest","Agenda"))
-        events.configureModule(owner,eventId,"CAL",ConfigureModuleRequest())
-        events.configureModule(owner,eventId,"SPT",ConfigureModuleRequest())
+        moduleFixtures.register(ModuleCatalog("SPT","Sports","Guest","Matches"))
+        moduleFixtures.register(ModuleCatalog("CAL","Agenda","Guest","Agenda"))
+        moduleFixtures.configure(owner,eventId,"CAL",ConfigureModuleRequest())
+        moduleFixtures.configure(owner,eventId,"SPT",ConfigureModuleRequest())
         val teams=List(4){modules.create(owner,eventId,"SPT","TEAM",ModuleRecordRequest(title="Team $it",payload=mapOf("category" to "Open"))).id}
         assertThrows(BadRequestException::class.java){modules.create(owner,eventId,"SPT","TEAM",ModuleRecordRequest(title="Uncategorized"))}
         fun scheduled(name:String,offset:Long)=agenda.addAgenda(owner,eventId,AgendaRequest(name,startsAt=Instant.now().plusSeconds(offset),endsAt=Instant.now().plusSeconds(offset+1800)))

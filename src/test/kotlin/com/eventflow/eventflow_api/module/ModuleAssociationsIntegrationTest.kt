@@ -25,11 +25,14 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import com.eventflow.eventflow_api.support.ModuleTestFixtures
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 @SpringBootTest class ModuleAssociationsIntegrationTest {
     @Autowired lateinit var events:EventService
+    @Autowired lateinit var moduleFixtures: ModuleTestFixtures
     @Autowired lateinit var modules:ModuleDataService
     @Autowired lateinit var agenda:AgendaService
     @Autowired lateinit var capacity:CapacityService
@@ -44,7 +47,7 @@ import java.util.UUID
         val owner=user();val guest=user()
         val eventId=events.create(owner,CreateEventRequest("Associations","CUSTOM",Instant.now().plusSeconds(3600))).id
         listOf("MAP","EXH","SES","TRN","RSC","CAL","AFO").forEach{code->
-            catalog.save(ModuleCatalog(code,code,"Guest",code));events.configureModule(owner,eventId,code,ConfigureModuleRequest())
+            moduleFixtures.register(ModuleCatalog(code,code,"Guest",code));moduleFixtures.configure(owner,eventId,code,ConfigureModuleRequest())
         }
         events.transition(owner,eventId,EventStatus.PUBLISHED)
         invitations.save(Invitation(eventId=eventId,linkedUserId=guest,guestName="Guest",tokenHash=UUID.randomUUID().toString()))
@@ -69,7 +72,8 @@ import java.util.UUID
         val sessionActivity=agenda.addAgenda(owner,eventId,AgendaRequest("Talk",startsAt=Instant.now().plusSeconds(1800),endsAt=Instant.now().plusSeconds(3600)))
         val session=modules.create(owner,eventId,"SES","SESSION",ModuleRecordRequest(title="Talk",parentRecordId=speaker.id,payload=mapOf("agendaItemId" to sessionActivity.id.toString())))
         assertEquals(speaker.id,sessions.details(guest,eventId,session.id).speaker.id)
-        val revisedStart=Instant.now().plusSeconds(2400)
+        // Match the microsecond precision of persisted timestamps (H2 and PostgreSQL).
+        val revisedStart=Instant.now().plusSeconds(2400).truncatedTo(ChronoUnit.MICROS)
         agenda.updateAgenda(owner,eventId,requireNotNull(sessionActivity.id),AgendaRequest("Talk revised",startsAt=revisedStart,endsAt=revisedStart.plusSeconds(1800)))
         assertEquals("Talk revised",modules.get(guest,eventId,session.id).title)
         assertEquals(revisedStart,modules.get(guest,eventId,session.id).startsAt)

@@ -19,11 +19,13 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import com.eventflow.eventflow_api.support.ModuleTestFixtures
 import java.time.Instant
 import java.util.UUID
 
 @SpringBootTest class GamificationServiceIntegrationTest {
     @Autowired lateinit var events:EventService
+    @Autowired lateinit var moduleFixtures: ModuleTestFixtures
     @Autowired lateinit var modules:ModuleDataService
     @Autowired lateinit var gamification:GamificationService
     @Autowired lateinit var users:UserRepository
@@ -33,8 +35,8 @@ import java.util.UUID
     @Test fun `staff verified milestone completes mission and awards badge once`() {
         val owner=user();val guest=user()
         val eventId=events.create(owner,CreateEventRequest("Game","CUSTOM",Instant.now().plusSeconds(3600))).id
-        catalog.save(ModuleCatalog("GAM","Gamification","Guest","Missions"))
-        events.configureModule(owner,eventId,"GAM",ConfigureModuleRequest())
+        moduleFixtures.register(ModuleCatalog("GAM","Gamification","Guest","Missions"))
+        moduleFixtures.configure(owner,eventId,"GAM",ConfigureModuleRequest())
         events.transition(owner,eventId,EventStatus.PUBLISHED)
         val invitation=invitations.save(Invitation(eventId=eventId,linkedUserId=guest,guestName="Guest",status=InvitationStatus.ACCEPTED,tokenHash=UUID.randomUUID().toString()))
         val milestone=modules.create(owner,eventId,"GAM","MILESTONE",ModuleRecordRequest(title="Visit stand"))

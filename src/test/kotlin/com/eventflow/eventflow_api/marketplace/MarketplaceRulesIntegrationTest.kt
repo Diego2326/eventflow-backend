@@ -37,6 +37,10 @@ class MarketplaceRulesIntegrationTest {
         val offering = service.create(provider, OfferingRequest(OfferingType.SPACE, "Sala", "Venue", location = "Centro", capacity = 50, price = BigDecimal.TEN))
         val id = requireNotNull(offering.id)
         assertEquals(listOf(id), service.search(OfferingType.SPACE, "venue", "cent", 20, BigDecimal.TEN).map { it.id })
+        // Exercise each nullable text filter independently as well as both present.
+        assertTrue(service.search(OfferingType.SPACE, "venue", null, 20, BigDecimal.TEN).any { it.id == id })
+        assertTrue(service.search(OfferingType.SPACE, null, "cent", 20, BigDecimal.TEN).any { it.id == id })
+        assertTrue(service.search(OfferingType.SPACE, null, null, null, null).any { it.id == id })
         assertTrue(service.search(OfferingType.SPACE, "venue", "cent", 51, BigDecimal.TEN).isEmpty())
         assertThrows(BadRequestException::class.java) { service.search(OfferingType.SPACE, null, null, null, null, 101) }
         val start = Instant.now().plusSeconds(7200)

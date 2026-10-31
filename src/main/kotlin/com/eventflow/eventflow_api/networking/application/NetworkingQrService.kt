@@ -5,6 +5,7 @@ import com.eventflow.eventflow_api.module.application.port.ModuleRecordRepositor
 import com.eventflow.eventflow_api.shared.application.error.ConflictException
 import com.eventflow.eventflow_api.shared.application.error.NotFoundException
 import com.eventflow.eventflow_api.shared.application.port.JsonCodec
+import com.eventflow.eventflow_api.user.application.port.UserPrivacyPreferencesPort
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
@@ -14,9 +15,10 @@ data class SharedProfileResponse(val profileId:UUID,val displayName:String?,val 
     val interests:List<String>,val contact:String?)
 
 @Service class NetworkingQrService(private val events:EventService,private val records:ModuleRecordRepositoryPort,
-    private val json:JsonCodec){
+    private val json:JsonCodec,private val privacy:UserPrivacyPreferencesPort){
     @Transactional(readOnly=true) fun qr(userId:UUID,eventId:UUID):NetworkingQrResponse{
         events.requireVisibleModule(userId,eventId,"NET")
+        if(privacy.findByUserId(userId)?.networkingProfileVisible==false)throw ConflictException("Tu perfil de networking está oculto")
         val profile=records.findAllByEventIdAndModuleCodeAndRecordTypeOrderByCreatedAtDesc(eventId,"NET","PROFILE")
             .firstOrNull{it.ownerUserId==userId&&it.status=="ACTIVE"&&json.readMap(it.payload)["visible"]==true}
             ?:throw ConflictException("Activa tu perfil de networking")
@@ -30,8 +32,11 @@ data class SharedProfileResponse(val profileId:UUID,val displayName:String?,val 
             throw NotFoundException("Perfil no encontrado")
         val data=json.readMap(profile.payload)
         if(data["consent"]!=true||data["visible"]!=true)throw NotFoundException("Perfil no encontrado")
+        val owner=profile.ownerUserId?:throw NotFoundException("Perfil no encontrado")
+        val preferences=privacy.findByUserId(owner)
+        if(preferences?.networkingProfileVisible==false)throw NotFoundException("Perfil no encontrado")
         return SharedProfileResponse(profileId,data["displayName"]?.toString(),data["bio"]?.toString(),
             data["organization"]?.toString(),(data["interests"] as? List<*>)?.map{it.toString()}?:emptyList(),
-            data["contact"]?.toString())
+            data["contact"]?.toString()?.takeIf{preferences?.networkingContactVisible!=false})
     }
 }

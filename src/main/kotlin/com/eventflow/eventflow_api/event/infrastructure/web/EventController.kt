@@ -28,5 +28,7 @@ class EventController(private val service: EventService) {
     @PutMapping("/events/{id}/modules/{code}") fun configure(a:Authentication,@PathVariable id:UUID,@PathVariable code:String,@RequestBody r:ConfigureModuleRequest)=service.configureModule(a.userId(),id,code,r)
     @PostMapping("/events/{id}/collaborators") @ResponseStatus(HttpStatus.CREATED) fun collaborator(a:Authentication,@PathVariable id:UUID,@RequestBody r:CollaboratorRequest)=service.addCollaborator(a.userId(),id,r)
     @GetMapping("/events/{id}/collaborators") fun collaborators(a:Authentication,@PathVariable id:UUID)=service.listCollaborators(a.userId(),id)
+    @GetMapping("/events/{id}/permissions") fun permissions(a:Authentication,@PathVariable id:UUID)=service.myPermissions(a.userId(),id)
+    @PatchMapping("/events/{id}/collaborators/{userId}") fun updateCollaborator(a:Authentication,@PathVariable id:UUID,@PathVariable userId:UUID,@RequestBody r:CollaboratorRequest)=service.updateCollaborator(a.userId(),id,userId,r)
     @DeleteMapping("/events/{id}/collaborators/{userId}") @ResponseStatus(HttpStatus.NO_CONTENT) fun removeCollaborator(a:Authentication,@PathVariable id:UUID,@PathVariable userId:UUID)=service.removeCollaborator(a.userId(),id,userId)
 }

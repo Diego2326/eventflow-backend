@@ -31,12 +31,14 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import com.eventflow.eventflow_api.support.ModuleTestFixtures
 import java.time.Instant
 
 @SpringBootTest
 class EventflowApiApplicationTests {
     @Autowired lateinit var authService: AuthService
     @Autowired lateinit var eventService: EventService
+    @Autowired lateinit var moduleFixtures: ModuleTestFixtures
     @Autowired lateinit var moduleCatalog: ModuleCatalogRepository
     @Autowired lateinit var invitationService: InvitationService
     @Autowired lateinit var agendaItems: AgendaItemRepository
@@ -57,7 +59,7 @@ class EventflowApiApplicationTests {
         val session = authService.login(LoginRequest("ana@example.com", "Strong#Pass1"), "test", "127.0.0.1")
         assertTrue(session.accessToken.isNotBlank())
         assertTrue(session.refreshToken.isNotBlank())
-        moduleCatalog.save(ModuleCatalog("SES", "Sesiones", "Contenido", "Sesiones y ponentes"))
+        moduleFixtures.register(ModuleCatalog("SES", "Sesiones", "Contenido", "Sesiones y ponentes"))
         val event = eventService.create(session.userId, CreateEventRequest("Congreso", "CONFERENCE", Instant.now().plusSeconds(3600)))
         assertEquals("CONFERENCE", event.type)
         assertTrue(eventService.modules(session.userId, event.id).any { it.code == "SES" })
@@ -71,12 +73,12 @@ class EventflowApiApplicationTests {
         authService.verifyEmail(verification)
         val userId = authService.login(LoginRequest("mario@example.com", "Strong#Pass1"), "test", "127.0.0.1").userId
         listOf("INV", "GST", "CAL", "MAP", "AST", "NOT").forEach { code ->
-            moduleCatalog.save(ModuleCatalog(code, code, "Invitados", "Módulo $code"))
+            moduleFixtures.register(ModuleCatalog(code, code, "Invitados", "Módulo $code"))
         }
         val startsAt = Instant.now().plusSeconds(3600)
         val event = eventService.create(userId, CreateEventRequest("Boda", "CUSTOM", startsAt, location = "Antigua Guatemala"))
         listOf("INV", "GST", "CAL", "MAP", "AST", "NOT").forEachIndexed { index, code ->
-            eventService.configureModule(userId, event.id, code, ConfigureModuleRequest(order = index, featured = code == "GST"))
+            moduleFixtures.configure(userId, event.id, code, ConfigureModuleRequest(order = index, featured = code == "GST"))
         }
         eventService.transition(userId, event.id, EventStatus.PUBLISHED)
         agendaItems.save(AgendaItem(eventId = event.id, title = "Ceremonia", startsAt = startsAt, endsAt = startsAt.plusSeconds(3600), zone = "Capilla"))

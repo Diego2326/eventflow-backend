@@ -6,6 +6,8 @@ import com.eventflow.eventflow_api.shared.application.port.CrudPort
 import java.util.UUID
 
 interface EventRepositoryPort : CrudPort<EventEntity, UUID> {
+    fun findPage(offset:Int,limit:Int):List<EventEntity>
+    fun countAll():Long
     fun findAccessible(userId: UUID): List<EventEntity>
     fun findLocked(id: UUID): EventEntity?
 }

@@ -30,3 +30,5 @@ El contrato exacto de todos los DTO está disponible en `/swagger-ui` y `/v3/api
 | LNF / AFO | [Objetos perdidos](lost-found.md), [aforo](capacity.md) |
 
 Las rutas de QR devuelven un valor para codificar. El frontend debe representarlo como imagen QR y, al leerlo, abrir la ruta indicada con una sesión autorizada. El backend no genera un PNG de QR.
+
+Estado de cobertura DERCAS y límites conocidos: [DERCAS_MODULE_STATUS.md](../DERCAS_MODULE_STATUS.md).

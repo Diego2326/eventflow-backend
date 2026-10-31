@@ -38,12 +38,14 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import com.eventflow.eventflow_api.support.ModuleTestFixtures
 import java.time.Instant
 import java.util.UUID
 
 @SpringBootTest
 class ModuleVisibilityIntegrationTest {
     @Autowired lateinit var events: EventService
+    @Autowired lateinit var moduleFixtures: ModuleTestFixtures
     @Autowired lateinit var modules: ModuleDataService
     @Autowired lateinit var catalog: ModuleCatalogRepository
     @Autowired lateinit var records: ModuleRecordRepository
@@ -58,7 +60,7 @@ class ModuleVisibilityIntegrationTest {
     @Test fun `unlinked invitation only sees matching notifications`() {
         val owner=requireNotNull(users.save(User(name="Notice owner",email="notice-${UUID.randomUUID()}@example.com",passwordHash="unused")).id)
         val eventId=events.create(owner,CreateEventRequest("Notices","CUSTOM",Instant.now().plusSeconds(3600))).id
-        listOf("INV","NOT").forEach{code->catalog.save(ModuleCatalog(code,code,"Core",code));events.configureModule(owner,eventId,code,ConfigureModuleRequest())}
+        listOf("INV","NOT").forEach{code->moduleFixtures.register(ModuleCatalog(code,code,"Core",code));moduleFixtures.configure(owner,eventId,code,ConfigureModuleRequest())}
         events.transition(owner,eventId,EventStatus.PUBLISHED)
         val invitation=invitationService.create(owner,eventId,CreateInvitationRequest("Guest"))
         notifications.save(NotificationEntity(eventId=eventId,title="Private table",body="Only A",audienceType="TABLE",audienceValue="A"))
@@ -72,8 +74,8 @@ class ModuleVisibilityIntegrationTest {
         )).id)
         val eventId = events.create(owner, CreateEventRequest("QR", "CUSTOM", Instant.now().plusSeconds(3600))).id
         listOf("INV", "GST").forEach { code ->
-            catalog.save(ModuleCatalog(code, code, "Core", code))
-            events.configureModule(owner, eventId, code, ConfigureModuleRequest())
+            moduleFixtures.register(ModuleCatalog(code, code, "Core", code))
+            moduleFixtures.configure(owner, eventId, code, ConfigureModuleRequest())
         }
         events.transition(owner, eventId, EventStatus.PUBLISHED)
         val created = invitationService.create(owner, eventId, CreateInvitationRequest("Guest"))
@@ -87,7 +89,7 @@ class ModuleVisibilityIntegrationTest {
     @Test fun `group check in tracks each member without mixing aggregate counts`() {
         val owner=requireNotNull(users.save(User(name="Group owner",email="group-${UUID.randomUUID()}@example.com",passwordHash="unused")).id)
         val eventId=events.create(owner,CreateEventRequest("Group","CUSTOM",Instant.now().plusSeconds(3600))).id
-        listOf("INV","GST").forEach{code->catalog.save(ModuleCatalog(code,code,"Core",code));events.configureModule(owner,eventId,code,ConfigureModuleRequest())}
+        listOf("INV","GST").forEach{code->moduleFixtures.register(ModuleCatalog(code,code,"Core",code));moduleFixtures.configure(owner,eventId,code,ConfigureModuleRequest())}
         events.transition(owner,eventId,EventStatus.PUBLISHED)
         val invitation=invitationService.create(owner,eventId,CreateInvitationRequest("Lead",allowedCapacity=2))
         invitationService.rsvp(requireNotNull(invitation.token),RsvpRequest(true,listOf("Companion")))
@@ -105,8 +107,8 @@ class ModuleVisibilityIntegrationTest {
         )).id)
         val eventId = events.create(owner, CreateEventRequest("Seating", "CUSTOM", Instant.now().plusSeconds(3600))).id
         listOf("INV", "GST").forEach { code ->
-            catalog.save(ModuleCatalog(code, code, "Core", code))
-            events.configureModule(owner, eventId, code, ConfigureModuleRequest())
+            moduleFixtures.register(ModuleCatalog(code, code, "Core", code))
+            moduleFixtures.configure(owner, eventId, code, ConfigureModuleRequest())
         }
         val area = records.save(ModuleRecord(eventId = eventId, moduleCode = "GST", recordType = "SEATING_AREA", title = "Mesa A", capacity = 2))
         val first = invitationService.create(owner, eventId, CreateInvitationRequest("First", allowedCapacity = 2, table = "Mesa A", seat = "A1"))
@@ -134,8 +136,8 @@ class ModuleVisibilityIntegrationTest {
         )).id)
         val eventId = events.create(owner, CreateEventRequest("Visible", "CUSTOM", Instant.now().plusSeconds(3600))).id
         listOf("GAL", "RSC", "ORD").forEach { code ->
-            catalog.save(ModuleCatalog(code, code, "Contenido", code))
-            events.configureModule(owner, eventId, code, ConfigureModuleRequest())
+            moduleFixtures.register(ModuleCatalog(code, code, "Contenido", code))
+            moduleFixtures.configure(owner, eventId, code, ConfigureModuleRequest())
         }
         listOf(guest, otherGuest).forEach { userId ->
             invitations.save(Invitation(eventId = eventId, linkedUserId = userId,

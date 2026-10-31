@@ -20,12 +20,14 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import com.eventflow.eventflow_api.support.ModuleTestFixtures
 import java.time.Instant
 import java.util.UUID
 
 @SpringBootTest
 class SurveyRulesIntegrationTest {
     @Autowired lateinit var events: EventService
+    @Autowired lateinit var moduleFixtures: ModuleTestFixtures
     @Autowired lateinit var modules: ModuleDataService
     @Autowired lateinit var users: UserRepository
     @Autowired lateinit var catalog: ModuleCatalogRepository
@@ -35,8 +37,8 @@ class SurveyRulesIntegrationTest {
         val owner=user()
         val guest=user()
         val eventId=events.create(owner,CreateEventRequest("Feedback","CUSTOM",Instant.now().plusSeconds(3600))).id
-        catalog.save(ModuleCatalog("REV","Reviews","Guest","Survey"))
-        events.configureModule(owner,eventId,"REV",ConfigureModuleRequest())
+        moduleFixtures.register(ModuleCatalog("REV","Reviews","Guest","Survey"))
+        moduleFixtures.configure(owner,eventId,"REV",ConfigureModuleRequest())
         invitations.save(Invitation(eventId=eventId,linkedUserId=guest,guestName="Guest",tokenHash=UUID.randomUUID().toString()))
         val survey=modules.create(owner,eventId,"REV","SURVEY",ModuleRecordRequest(title="Feedback"))
         events.transition(owner,eventId,EventStatus.PUBLISHED)
@@ -51,8 +53,8 @@ class SurveyRulesIntegrationTest {
     @Test fun `anonymous survey hides respondent identity and still prevents duplicates`() {
         val owner=user();val guest=user();val other=user()
         val eventId=events.create(owner,CreateEventRequest("Anonymous feedback","CUSTOM",Instant.now().plusSeconds(3600))).id
-        catalog.save(ModuleCatalog("REV","Reviews","Guest","Survey"))
-        events.configureModule(owner,eventId,"REV",ConfigureModuleRequest())
+        moduleFixtures.register(ModuleCatalog("REV","Reviews","Guest","Survey"))
+        moduleFixtures.configure(owner,eventId,"REV",ConfigureModuleRequest())
         listOf(guest,other).forEach{invitations.save(Invitation(eventId=eventId,linkedUserId=it,guestName="Guest",tokenHash=UUID.randomUUID().toString()))}
         val survey=modules.create(owner,eventId,"REV","SURVEY",ModuleRecordRequest(title="Anonymous",payload=mapOf("anonymous" to true)))
         events.transition(owner,eventId,EventStatus.PUBLISHED)

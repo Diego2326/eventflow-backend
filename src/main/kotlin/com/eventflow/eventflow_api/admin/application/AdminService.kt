@@ -12,6 +12,7 @@ import com.eventflow.eventflow_api.auth.domain.Role
 import com.eventflow.eventflow_api.auth.domain.UserStatus
 import com.eventflow.eventflow_api.module.application.port.ModuleCatalogRepositoryPort
 import com.eventflow.eventflow_api.module.domain.ModuleCatalog
+import com.eventflow.eventflow_api.event.application.port.EventRepositoryPort
 import com.eventflow.eventflow_api.shared.application.error.BadRequestException
 import com.eventflow.eventflow_api.shared.application.error.ConflictException
 import com.eventflow.eventflow_api.shared.application.error.NotFoundException
@@ -27,9 +28,23 @@ data class ResolveReportRequest(val status:String,val resolution:String)
 data class UserStatusRequest(val status:UserStatus)
 data class CatalogUpdate(val enabled:Boolean,val name:String?=null,val description:String?=null,val category:String?=null)
 data class AdminUserResponse(val id:UUID,val name:String,val email:String,val status:UserStatus,val roles:Set<Role>,val createdAt:Instant)
+data class AdminCollectionResult<T>(val items:List<T>,val totalElements:Long,val page:Int?=null,val size:Int?=null,val totalPages:Int?=null,val hasNext:Boolean?=null)
 
-@Service class AdminService(private val users:UserRepositoryPort,private val sessions:UserSessionRepositoryPort,private val roleRequests:RoleRequestRepositoryPort,private val reports:ModerationReportRepositoryPort,private val catalog:ModuleCatalogRepositoryPort,private val audits:AuditLogRepositoryPort){
-    @Transactional(readOnly=true) fun users()=users.findAll().map{AdminUserResponse(requireNotNull(it.id),it.name,it.email,it.status,it.roles,it.createdAt)}
+@Service class AdminService(private val users:UserRepositoryPort,private val sessions:UserSessionRepositoryPort,private val roleRequests:RoleRequestRepositoryPort,private val reports:ModerationReportRepositoryPort,private val catalog:ModuleCatalogRepositoryPort,private val audits:AuditLogRepositoryPort,private val events:EventRepositoryPort){
+    @Transactional(readOnly=true) fun users(page:Int?,size:Int?):AdminCollectionResult<AdminUserResponse> {
+        val request=pageRequest(page,size)?:return users.findAll().map(::adminUser).let{AdminCollectionResult(it,it.size.toLong())}
+        return paged(users.findPage(request.offset,request.size),users.countAll(),request){user->
+            adminUser(users.findWithRolesById(requireNotNull(user.id))?:user)
+        }
+    }
+    @Transactional(readOnly=true) fun events(page:Int?,size:Int?):AdminCollectionResult<com.eventflow.eventflow_api.event.domain.EventEntity> {
+        val request=pageRequest(page,size)?:return events.findAll().sortedByDescending{it.createdAt}.let{AdminCollectionResult(it,it.size.toLong())}
+        return paged(events.findPage(request.offset,request.size),events.countAll(),request){it}
+    }
+    @Transactional(readOnly=true) fun audit(page:Int?,size:Int?):AdminCollectionResult<AuditLog> {
+        val request=pageRequest(page,size)?:return audits.findAll().sortedByDescending{it.createdAt}.let{AdminCollectionResult(it,it.size.toLong())}
+        return paged(audits.findPage(request.offset,request.size),audits.countAll(),request){it}
+    }
     @Transactional fun userStatus(admin:UUID,id:UUID,r:UserStatusRequest)=users.findById(id).orElseThrow{NotFoundException("Usuario no encontrado")}.also{
         if(r.status !in setOf(UserStatus.ACTIVE,UserStatus.DISABLED)||it.status==UserStatus.DELETED)throw BadRequestException("Cambio de estado no permitido")
         if(id==admin&&r.status==UserStatus.DISABLED)throw ConflictException("No puedes desactivar tu cuenta administradora")
@@ -38,10 +53,31 @@ data class AdminUserResponse(val id:UUID,val name:String,val email:String,val st
         if(r.status==UserStatus.DISABLED)sessions.revokeAll(id,Instant.now())
         audits.save(AuditLog(actorUserId=admin,action="USER_STATUS_${r.status}",targetType="USER",targetId=id))
     }
-    @Transactional(readOnly=true) fun roleRequests()=roleRequests.findAll().filter{it.status=="PENDING"}
+    @Transactional(readOnly=true) fun roleRequests(page:Int?,size:Int?):AdminCollectionResult<RoleRequest> {
+        val request=pageRequest(page,size)?:return roleRequests.findAll().filter{it.status=="PENDING"}.let{AdminCollectionResult(it,it.size.toLong())}
+        return paged(roleRequests.findPendingPage(request.offset,request.size),roleRequests.countPending(),request){it}
+    }
     @Transactional fun decideRole(admin:UUID,id:UUID,r:AdminDecision):RoleRequest{val q=roleRequests.findById(id).orElseThrow{NotFoundException("Solicitud no encontrada")};if(q.status!="PENDING")throw ConflictException("La solicitud ya fue decidida");if(r.approved){val u=users.findById(q.userId).orElseThrow{NotFoundException("Usuario no encontrado")};if(u.status!=UserStatus.ACTIVE)throw ConflictException("La cuenta solicitante no está activa");val role=runCatching{Role.valueOf(q.requestedRole)}.getOrNull()?:throw BadRequestException("Rol inválido");if(role in setOf(Role.ADMIN,Role.USER))throw BadRequestException("Rol no aprobable");u.roles.add(role)};q.status=if(r.approved)"APPROVED" else "REJECTED";q.decidedBy=admin;q.decidedAt=Instant.now();q.reason=r.reason;audits.save(AuditLog(actorUserId=admin,action="ROLE_${q.status}",targetType="ROLE_REQUEST",targetId=id));return q}
     @Transactional fun report(userId:UUID,r:ReportRequest):ModerationReport{if(r.reason.isBlank())throw BadRequestException("El motivo es obligatorio");return reports.save(ModerationReport(reporterUserId=userId,eventId=r.eventId,targetType=r.targetType.uppercase(),targetId=r.targetId,reason=r.reason))}
-    @Transactional(readOnly=true) fun reports()=reports.findAll()
+    @Transactional(readOnly=true) fun reports(page:Int?,size:Int?):AdminCollectionResult<ModerationReport> {
+        val request=pageRequest(page,size)?:return reports.findAll().let{AdminCollectionResult(it,it.size.toLong())}
+        return paged(reports.findPage(request.offset,request.size),reports.countAll(),request){it}
+    }
     @Transactional fun resolve(admin:UUID,id:UUID,r:ResolveReportRequest):ModerationReport{val report=reports.findById(id).orElseThrow{NotFoundException("Reporte no encontrado")};report.status=r.status.uppercase();report.resolution=r.resolution;report.resolvedBy=admin;report.resolvedAt=Instant.now();audits.save(AuditLog(actorUserId=admin,eventId=report.eventId,action="REPORT_${report.status}",targetType=report.targetType,targetId=report.targetId));return report}
     @Transactional fun module(admin:UUID,code:String,r:CatalogUpdate):ModuleCatalog{val m=catalog.findById(code.uppercase()).orElseThrow{NotFoundException("Módulo no encontrado")};m.globallyEnabled=r.enabled;r.name?.let{m.name=it};r.description?.let{m.description=it};r.category?.let{m.category=it};audits.save(AuditLog(actorUserId=admin,action="MODULE_CATALOG_UPDATE",targetType="MODULE",details="{\"code\":\"${m.code}\"}"));return m}
+
+    private data class PageInput(val page:Int,val size:Int,val offset:Int)
+    private fun pageRequest(page:Int?,size:Int?):PageInput? {
+        if(page==null&&size==null)return null
+        val pageNumber=page?:0;val pageSize=size?:20
+        if(pageNumber<0||pageSize !in 1..100)throw BadRequestException("Paginación inválida: page debe ser >= 0 y size entre 1 y 100")
+        val offset=pageNumber.toLong()*pageSize
+        if(offset>Int.MAX_VALUE)throw BadRequestException("El número de página es demasiado grande")
+        return PageInput(pageNumber,pageSize,offset.toInt())
+    }
+    private fun <T:Any,R:Any> paged(items:List<T>,total:Long,request:PageInput,mapper:(T)->R):AdminCollectionResult<R>{
+        val pages=if(total==0L)0 else ((total+request.size-1)/request.size).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        return AdminCollectionResult(items.map(mapper),total,request.page,request.size,pages,(request.page+1)<pages)
+    }
+    private fun adminUser(user:com.eventflow.eventflow_api.auth.domain.User)=AdminUserResponse(requireNotNull(user.id),user.name,user.email,user.status,user.roles,user.createdAt)
 }

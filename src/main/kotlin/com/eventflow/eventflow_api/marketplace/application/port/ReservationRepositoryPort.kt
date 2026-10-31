@@ -8,5 +8,6 @@ import java.util.UUID
 
 interface ReservationRepositoryPort : CrudPort<Reservation, UUID> {
     fun findAllByEventId(eventId: UUID): List<Reservation>
+    fun findAllByRequesterUserIdOrderByCreatedAtDesc(userId: UUID): List<Reservation>
     fun hasConflict(offeringId: UUID, startsAt: Instant, endsAt: Instant): Boolean
 }

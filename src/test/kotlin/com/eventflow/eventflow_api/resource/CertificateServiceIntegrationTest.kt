@@ -24,11 +24,13 @@ import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
+import com.eventflow.eventflow_api.support.ModuleTestFixtures
 import java.time.Instant
 import java.util.UUID
 
 @SpringBootTest class CertificateServiceIntegrationTest {
     @Autowired lateinit var events:EventService
+    @Autowired lateinit var moduleFixtures: ModuleTestFixtures
     @Autowired lateinit var certificates:CertificateService
     @Autowired lateinit var users:UserRepository
     @Autowired lateinit var invitations:InvitationRepository
@@ -40,8 +42,8 @@ import java.util.UUID
     @Test fun `certificate requires attendance and private recipient file`() {
         val owner=user();val guest=user()
         val eventId=events.create(owner,CreateEventRequest("Certificates","CUSTOM",Instant.now().plusSeconds(3600))).id
-        catalog.save(ModuleCatalog("RSC","Resources","Guest","Certificates"))
-        events.configureModule(owner,eventId,"RSC",ConfigureModuleRequest())
+        moduleFixtures.register(ModuleCatalog("RSC","Resources","Guest","Certificates"))
+        moduleFixtures.configure(owner,eventId,"RSC",ConfigureModuleRequest())
         events.transition(owner,eventId,EventStatus.PUBLISHED)
         events.transition(owner,eventId,EventStatus.RUNNING)
         events.transition(owner,eventId,EventStatus.FINISHED)

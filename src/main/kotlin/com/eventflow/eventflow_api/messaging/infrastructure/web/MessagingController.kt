@@ -11,4 +11,8 @@ import java.util.UUID
 @RestController @RequestMapping("/api/events/{eventId}") class MessagingController(private val s:MessagingService){
     @PostMapping("/messages") @ResponseStatus(HttpStatus.CREATED) fun message(a:Authentication,@PathVariable eventId:UUID,@RequestBody r:MessageRequest)=s.message(a.userId(),eventId,r)
     @GetMapping("/messages") fun messages(a:Authentication,@PathVariable eventId:UUID,@RequestParam channel:String)=s.messages(a.userId(),eventId,channel)
+    @GetMapping("/messages/conversations") fun conversations(a:Authentication,@PathVariable eventId:UUID,@RequestParam channel:String)=s.conversations(a.userId(),eventId,channel)
+    @GetMapping("/messages/conversations/{conversationId}") fun conversation(a:Authentication,@PathVariable eventId:UUID,@RequestParam channel:String,@PathVariable conversationId:String)=s.conversation(a.userId(),eventId,channel,conversationId)
+    @PostMapping("/messages/conversations/{conversationId}/read") fun markRead(a:Authentication,@PathVariable eventId:UUID,@RequestParam channel:String,@PathVariable conversationId:String)=s.markConversationRead(a.userId(),eventId,channel,conversationId)
+    @GetMapping("/messages/conversations/{conversationId}/read-state") fun readState(a:Authentication,@PathVariable eventId:UUID,@RequestParam channel:String,@PathVariable conversationId:String)=s.readState(a.userId(),eventId,channel,conversationId)
 }

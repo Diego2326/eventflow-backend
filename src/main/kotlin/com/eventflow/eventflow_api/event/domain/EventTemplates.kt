@@ -19,4 +19,5 @@ object EventTemplates {
     )
 
     fun modulesFor(type: String): List<String> = defaults[type].orEmpty()
+    fun types():List<String> = defaults.keys.sorted()
 }

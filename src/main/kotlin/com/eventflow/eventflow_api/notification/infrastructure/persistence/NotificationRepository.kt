@@ -9,4 +9,5 @@ import java.util.UUID
 interface NotificationRepository : JpaRepository<NotificationEntity, UUID>, NotificationRepositoryPort {
     override fun findAllByEventIdAndActiveTrueOrderByCreatedAtDesc(eventId: UUID): List<NotificationEntity>
     override fun existsByDedupeKey(dedupeKey: String): Boolean
+    override fun findAllByIdIn(ids: Collection<UUID>): List<NotificationEntity>
 }
