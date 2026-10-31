@@ -28,7 +28,7 @@ openssl rand -base64 32
 ./gradlew bootRun
 ```
 
-La API queda en `http://localhost:5080/api` y Swagger en `http://localhost:5080/swagger-ui`.
+La API queda en `http://localhost:5080/api`. La raíz (`http://localhost:5080/`) redirige a Swagger UI.
 
 La guía de integración del frontend está organizada por módulo en [docs/frontend/README.md](docs/frontend/README.md).
 

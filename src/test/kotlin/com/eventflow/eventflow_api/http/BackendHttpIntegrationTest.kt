@@ -256,6 +256,9 @@ class BackendHttpIntegrationTest {
         val docs = exchange("/v3/api-docs", HttpMethod.GET)
         assertEquals(HttpStatus.OK, docs.statusCode)
         assertTrue(docs.rawBody.contains("/api/auth/refresh"))
+        val home = exchange("/", HttpMethod.GET)
+        assertEquals(HttpStatus.FOUND, home.statusCode)
+        assertEquals("/swagger-ui", URI(home.headers["location"]).path)
         assertEquals(HttpStatus.OK, exchange("/swagger-ui/index.html", HttpMethod.GET).statusCode)
     }
 
